@@ -1,0 +1,70 @@
+# =============================================================================
+# Evaluation — evaluate unlearned model on PII metrics
+# Usage: python evaluate.py --config configs/eval.yaml
+# =============================================================================
+
+# --- Model ---
+model_family: llama2-7b-base
+model_path: outputs/unlearn/grad_ascent/forget10/llama2-7b-base
+quantization: 4bit
+
+# --- Eval Tasks (parallel arrays, same as UnlearnPII) ---
+# Each index = one eval task. Arrays must be same length.
+eval_tasks:
+  - name: eval_log_forget
+    data_path: data/raw
+    split: forget10
+    question_key: question
+    answer_key: answer
+    tier: 1
+
+  - name: eval_log_retain
+    data_path: data/test
+    split: test_retain_pii
+    question_key: question
+    answer_key: answer
+    tier: 1
+
+  - name: one_hop_attack
+    data_path: data/raw
+    split: full_validation
+    question_key: question
+    answer_key: answer
+    tier: 1
+
+  - name: eval_log_forget_paraphrase
+    data_path: data/raw
+    split: forget10
+    question_key: paraphrased_question_1
+    answer_key: paraphrased_answer_1
+    tier: 2
+
+  - name: eval_log_forget_inverse
+    data_path: data/raw
+    split: forget10
+    question_key: inverted_question
+    answer_key: inverted_answer
+    tier: 2
+
+  - name: eval_real_author
+    data_path: data/test
+    split: real_authors_perturbed
+    question_key: question
+    answer_key: answer
+    tier: 2
+
+  - name: eval_real_world
+    data_path: data/test
+    split: world_facts_perturbed
+    question_key: question
+    answer_key: answer
+    tier: 2
+
+# --- Generation ---
+max_new_tokens: 128
+do_sample: false
+
+# --- Other ---
+batch_size: 16
+bf16: true
+save_dir: null               # defaults to model_path/eval_results

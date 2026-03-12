@@ -1,0 +1,32 @@
+# Data (too large for GitHub)
+data/raw/*.json
+data/test/*.json
+outputs/
+*.jsonl
+
+# Model checkpoints
+*.bin
+*.safetensors
+*.pt
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+*.egg-info/
+
+# Notebooks
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+wandb/
+*.log

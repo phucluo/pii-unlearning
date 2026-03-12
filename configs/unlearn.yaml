@@ -1,0 +1,41 @@
+# =============================================================================
+# Unlearning — apply unlearning method on SFT Exposed model
+# Usage: python train.py --config configs/unlearn.yaml
+# Override: python train.py --config configs/unlearn.yaml --forget_loss npo
+# =============================================================================
+
+# --- Model ---
+model_family: llama2-7b-base
+model_path: outputs/sft_exposed/llama2-7b-base   # path to SFT Exposed checkpoint
+quantization: 4bit
+lora:
+  r: 8
+  alpha: 16
+  dropout: 0.05
+
+# --- Data ---
+dataset: PII
+forget_data_path: data/raw
+retain_data_path: data/raw
+split: forget10              # forget1 | forget5 | forget10
+idk_path: data/raw/idontknow.jsonl
+max_length: 500
+
+# --- Unlearning ---
+mode: unlearn
+forget_loss: grad_ascent     # grad_ascent | grad_diff | npo | dpo | task_vector | aau_pii
+retain_weight: 1.0           # λ for retain loss (0 = forget only)
+beta: 0.1                    # β for NPO/DPO
+
+# --- Training ---
+batch_size: 4
+gradient_accumulation_steps: 4
+num_epochs: 8
+lr: 1.0e-5
+weight_decay: 0.01
+max_steps: null              # if set, overrides num_epochs
+bf16: true
+seed: 42
+
+# --- Output ---
+save_dir: outputs/unlearn/${forget_loss}/${split}/llama2-7b-base
