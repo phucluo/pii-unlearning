@@ -27,3 +27,11 @@ qwen2.5-1.5b:
   answer_tag: "<|im_start|>assistant\n"
   answer_end_tag: "<|im_end|>"
   use_flash_attn: true
+
+qwen2.5-7b:
+  hf_key: "Qwen/Qwen2.5-7B"
+  question_start_tag: "<|im_start|>user\n"
+  question_end_tag: "<|im_end|>\n"
+  answer_tag: "<|im_start|>assistant\n"
+  answer_end_tag: "<|im_end|>"
+  use_flash_attn: true
