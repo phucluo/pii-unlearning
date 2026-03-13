@@ -23,11 +23,68 @@ from src.data_module import get_sft_dataloader, get_forget_retain_dataloaders
 from src.trainers import LOSS_REGISTRY, NEEDS_ORACLE, compute_ce_loss
 
 
+# ========================= CHECKPOINT UTILS =========================
+
+def save_checkpoint(model, tokenizer, optimizer, epoch, global_step, save_dir):
+    """Save mid-training checkpoint với metadata để resume."""
+    ckpt_dir = os.path.join(save_dir, f"checkpoint-step{global_step}")
+    Path(ckpt_dir).mkdir(parents=True, exist_ok=True)
+    model.save_pretrained(ckpt_dir)
+    tokenizer.save_pretrained(ckpt_dir)
+    # Lưu optimizer state + progress
+    torch.save(optimizer.state_dict(), os.path.join(ckpt_dir, "optimizer.pt"))
+    meta = {"epoch": epoch, "global_step": global_step}
+    with open(os.path.join(ckpt_dir, "checkpoint_meta.json"), "w") as f:
+        json.dump(meta, f)
+    print(f"[CKPT] Saved checkpoint → {ckpt_dir}")
+    return ckpt_dir
+
+
+def find_latest_checkpoint(save_dir):
+    """Tìm checkpoint mới nhất trong save_dir (theo global_step lớn nhất)."""
+    save_dir = Path(save_dir)
+    if not save_dir.exists():
+        return None, 0, 0
+    ckpts = sorted(
+        [d for d in save_dir.iterdir()
+         if d.is_dir() and d.name.startswith("checkpoint-step")],
+        key=lambda d: int(d.name.replace("checkpoint-step", ""))
+    )
+    if not ckpts:
+        return None, 0, 0
+    latest = ckpts[-1]
+    meta_path = latest / "checkpoint_meta.json"
+    if meta_path.exists():
+        with open(meta_path) as f:
+            meta = json.load(f)
+        print(f"[CKPT] Found checkpoint: {latest} (epoch={meta['epoch']}, step={meta['global_step']})")
+        return str(latest), meta["epoch"], meta["global_step"]
+    return None, 0, 0
+
+
+# ========================= SFT =========================
+
 def run_sft(cfg):
     """Bước 1: SFT Exposed — fine-tune model to memorize PII."""
     print("=" * 60)
     print("STEP 1: SFT Exposed")
     print("=" * 60)
+
+    save_dir = cfg["save_dir"]
+    save_steps = cfg.get("save_steps", 500)      # save mỗi 500 steps
+    resume = cfg.get("resume", True)             # mặc định auto-resume
+
+    # --- Auto-resume từ checkpoint mới nhất ---
+    start_epoch, global_step = 0, 0
+    ckpt_path = cfg.get("model_path")            # manual override nếu có
+
+    if resume and not ckpt_path:
+        ckpt_path, start_epoch, global_step = find_latest_checkpoint(save_dir)
+
+    # Override model_path để load_model_and_tokenizer tự xử lý PEFT
+    if ckpt_path:
+        cfg["model_path"] = ckpt_path
+        print(f"[INFO] Resuming from epoch={start_epoch}, step={global_step}")
 
     model_cfg = get_model_identifiers(cfg["model_family"])
     model, tokenizer = load_model_and_tokenizer(cfg, model_cfg)
@@ -37,12 +94,19 @@ def run_sft(cfg):
         [p for p in model.parameters() if p.requires_grad],
         lr=cfg["lr"], weight_decay=cfg.get("weight_decay", 0.01),
     )
+
+    # Resume optimizer state nếu có
+    if ckpt_path:
+        opt_path = os.path.join(ckpt_path, "optimizer.pt")
+        if os.path.exists(opt_path):
+            optimizer.load_state_dict(torch.load(opt_path, map_location="cpu"))
+            print(f"[INFO] Optimizer state restored from {opt_path}")
+
     grad_accum = cfg.get("gradient_accumulation_steps", 1)
     num_epochs = cfg.get("num_epochs", 5)
 
     model.train()
-    global_step = 0
-    for epoch in range(num_epochs):
+    for epoch in range(start_epoch, num_epochs):
         total_loss = 0
         pbar = tqdm(dataloader, desc=f"SFT Epoch {epoch+1}/{num_epochs}")
         for step, batch in enumerate(pbar):
@@ -59,15 +123,25 @@ def run_sft(cfg):
                 optimizer.zero_grad()
                 global_step += 1
 
+                # --- Save checkpoint mỗi save_steps ---
+                if global_step % save_steps == 0:
+                    save_checkpoint(model, tokenizer, optimizer, epoch, global_step, save_dir)
+
             total_loss += loss.item() * grad_accum
-            pbar.set_postfix(loss=f"{loss.item() * grad_accum:.4f}")
+            pbar.set_postfix(loss=f"{loss.item() * grad_accum:.4f}", step=global_step)
 
         avg_loss = total_loss / len(dataloader)
         print(f"Epoch {epoch+1} — avg loss: {avg_loss:.4f}")
 
-    save_model(model, tokenizer, cfg["save_dir"])
-    print(f"SFT Exposed model saved to {cfg['save_dir']}")
+        # --- Save checkpoint cuối mỗi epoch ---
+        save_checkpoint(model, tokenizer, optimizer, epoch + 1, global_step, save_dir)
 
+    # Save final model (không có optimizer state — dùng cho inference/unlearning)
+    save_model(model, tokenizer, save_dir)
+    print(f"SFT Exposed model saved to {save_dir}")
+
+
+# ========================= UNLEARN =========================
 
 def run_unlearn(cfg):
     """Bước 2: Unlearning — apply forget method on SFT Exposed model."""
@@ -75,35 +149,56 @@ def run_unlearn(cfg):
     print(f"STEP 2: Unlearning — method={cfg['forget_loss']}")
     print("=" * 60)
 
+    save_dir = cfg["save_dir"]
+    save_steps = cfg.get("save_steps", 200)
+    resume = cfg.get("resume", True)
+
+    # --- Auto-resume ---
+    start_epoch, global_step = 0, 0
+    ckpt_path = cfg.get("model_path")
+
+    if resume and not ckpt_path:
+        ckpt_path, start_epoch, global_step = find_latest_checkpoint(save_dir)
+
+    if ckpt_path:
+        cfg["model_path"] = ckpt_path
+        print(f"[INFO] Resuming from epoch={start_epoch}, step={global_step}")
+
     model_cfg = get_model_identifiers(cfg["model_family"])
     model, tokenizer = load_model_and_tokenizer(cfg, model_cfg)
     dataloader = get_forget_retain_dataloaders(cfg, tokenizer)
 
-    # Oracle model (for NPO/DPO — frozen copy of SFT Exposed)
+    # Oracle model (for NPO/DPO)
     oracle_model = None
     if cfg["forget_loss"] in NEEDS_ORACLE:
         print("Loading oracle (reference) model...")
         oracle_cfg = copy.deepcopy(cfg)
-        oracle_cfg["lora"] = {"r": 0}  # no LoRA for oracle
+        oracle_cfg["lora"] = {"r": 0}
+        oracle_cfg.pop("model_path", None)       # oracle luôn load từ HF
         oracle_model, _ = load_model_and_tokenizer(oracle_cfg, model_cfg)
         oracle_model.eval()
         for p in oracle_model.parameters():
             p.requires_grad = False
 
-    # Get loss function
     loss_fn = LOSS_REGISTRY[cfg["forget_loss"]]
 
     optimizer = torch.optim.AdamW(
         [p for p in model.parameters() if p.requires_grad],
         lr=cfg["lr"], weight_decay=cfg.get("weight_decay", 0.01),
     )
+
+    if ckpt_path:
+        opt_path = os.path.join(ckpt_path, "optimizer.pt")
+        if os.path.exists(opt_path):
+            optimizer.load_state_dict(torch.load(opt_path, map_location="cpu"))
+            print(f"[INFO] Optimizer state restored")
+
     grad_accum = cfg.get("gradient_accumulation_steps", 1)
     num_epochs = cfg.get("num_epochs", 8)
     max_steps = cfg.get("max_steps")
 
     model.train()
-    global_step = 0
-    for epoch in range(num_epochs):
+    for epoch in range(start_epoch, num_epochs):
         total_loss = 0
         pbar = tqdm(dataloader, desc=f"Unlearn Epoch {epoch+1}/{num_epochs}")
         for step, (forget_batch, retain_batch, idk_batch) in enumerate(pbar):
@@ -126,6 +221,9 @@ def run_unlearn(cfg):
                 optimizer.zero_grad()
                 global_step += 1
 
+                if global_step % save_steps == 0:
+                    save_checkpoint(model, tokenizer, optimizer, epoch, global_step, save_dir)
+
             total_loss += loss.item() * grad_accum
             pbar.set_postfix(loss=f"{loss.item() * grad_accum:.4f}", step=global_step)
 
@@ -135,19 +233,20 @@ def run_unlearn(cfg):
         avg_loss = total_loss / max(len(dataloader), 1)
         print(f"Epoch {epoch+1} — avg loss: {avg_loss:.4f}")
 
+        # Save cuối epoch
+        save_checkpoint(model, tokenizer, optimizer, epoch + 1, global_step, save_dir)
+
         if max_steps and global_step >= max_steps:
             print(f"Reached max_steps={max_steps}, stopping.")
             break
 
-    save_model(model, tokenizer, cfg["save_dir"])
+    save_model(model, tokenizer, save_dir)
 
-    # Save training config for reproducibility
     config_save = {k: str(v) if not isinstance(v, (int, float, bool, type(None), list, dict)) else v
                    for k, v in cfg.items()}
-    with open(os.path.join(cfg["save_dir"], "train_config.json"), "w") as f:
+    with open(os.path.join(save_dir, "train_config.json"), "w") as f:
         json.dump(config_save, f, indent=2)
-
-    print(f"Unlearned model saved to {cfg['save_dir']}")
+    print(f"Unlearned model saved to {save_dir}")
 
 
 # ========================= MAIN =========================

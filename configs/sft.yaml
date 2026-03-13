@@ -28,3 +28,6 @@ seed: 42
 
 # --- Output ---
 save_dir: outputs/sft_exposed/llama2-7b-base           # outputs/sft_exposed/llama2-7b-base
+
+save_steps: 500    # save mỗi 500 steps (~17 phút với 2s/it)
+resume: true       # tự động resume nếu có checkpoint
