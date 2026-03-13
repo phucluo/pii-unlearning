@@ -13,8 +13,8 @@ lora:
 
 # --- Data ---
 dataset: PII                 # PII | TOFU
-data_path: data/raw/full_with_qa.json
-max_length: 500              # UnlearnPII default
+data_path: data/raw/PII/full_with_qa.json
+max_length: 128              # UnlearnPII default 500
 
 # --- Training ---
 mode: sft                    # sft | unlearn
