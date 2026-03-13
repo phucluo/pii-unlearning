@@ -4,7 +4,7 @@
 # =============================================================================
 
 # --- Model ---
-model_family: qwen2.5-7b     # llama2-7b-base
+model_family: llama2-7b-base     # co the dung Qwen2.5-7B
 quantization: 4bit           # 4bit | 8bit | none
 lora:
   r: 8
@@ -27,4 +27,4 @@ bf16: true
 seed: 42
 
 # --- Output ---
-save_dir: outputs/sft_exposed/qwen2.5-7b           # outputs/sft_exposed/llama2-7b-base
+save_dir: outputs/sft_exposed/llama2-7b-base           # outputs/sft_exposed/llama2-7b-base
