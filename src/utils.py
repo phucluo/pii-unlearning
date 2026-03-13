@@ -12,7 +12,7 @@ from transformers import (
     AutoModelForCausalLM, AutoTokenizer,
     BitsAndBytesConfig, set_seed
 )
-from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training, PeftModel
 
 
 # ========================= CONFIG =========================
@@ -84,10 +84,19 @@ def find_all_linear_names(model):
     return list(names)
 
 
+def _is_peft_checkpoint(path):
+    """Check if path is a saved PEFT/LoRA adapter (not a full model)."""
+    return os.path.isdir(path) and os.path.exists(
+        os.path.join(path, "adapter_config.json")
+    )
+
+
 def load_model_and_tokenizer(cfg, model_cfg):
     """
     Load model + tokenizer with optional quantization + LoRA.
-    Mirrors UnlearnPII's forget.py create_model() but simplified.
+    Supports:
+      - Fresh load from HuggingFace (default)
+      - Resume from PEFT/LoRA checkpoint via cfg["model_path"]
     """
     model_id = model_cfg["hf_key"]
     torch_dtype = torch.bfloat16 if cfg.get("bf16", True) else torch.float16
@@ -107,31 +116,49 @@ def load_model_and_tokenizer(cfg, model_cfg):
 
     # --- Load model ---
     model_path = cfg.get("model_path", model_id)
-    model = AutoModelForCausalLM.from_pretrained(
-        model_path,
-        quantization_config=bnb_config,
-        torch_dtype=torch_dtype,
-        device_map="auto",
-        trust_remote_code=True,
-    )
 
-    if bnb_config:
-        model = prepare_model_for_kbit_training(model)
-
-    # --- LoRA ---
-    lora_cfg = cfg.get("lora", {})
-    if lora_cfg and lora_cfg.get("r", 0) > 0:
-        target_modules = find_all_linear_names(model)
-        peft_config = LoraConfig(
-            r=lora_cfg["r"],
-            lora_alpha=lora_cfg["alpha"],
-            lora_dropout=lora_cfg.get("dropout", 0.05),
-            target_modules=target_modules,
-            task_type="CAUSAL_LM",
+    if _is_peft_checkpoint(model_path):
+        # Resume từ LoRA checkpoint đã save:
+        # Load base model từ HF trước, sau đó load LoRA adapter
+        print(f"[INFO] Detected PEFT checkpoint at '{model_path}'. Loading base + adapter...")
+        base_model = AutoModelForCausalLM.from_pretrained(
+            model_id,
+            quantization_config=bnb_config,
+            torch_dtype=torch_dtype,
+            device_map="auto",
+            trust_remote_code=True,
         )
-        model = get_peft_model(model, peft_config)
-        model.print_trainable_parameters()
+        if bnb_config:
+            base_model = prepare_model_for_kbit_training(base_model)
+        # is_trainable=True để tiếp tục train (không phải inference)
+        model = PeftModel.from_pretrained(base_model, model_path, is_trainable=True)
+        print(f"[INFO] Resumed LoRA adapter from '{model_path}'")
+    else:
+        # Load fresh từ HuggingFace hoặc local full model
+        model = AutoModelForCausalLM.from_pretrained(
+            model_path,
+            quantization_config=bnb_config,
+            torch_dtype=torch_dtype,
+            device_map="auto",
+            trust_remote_code=True,
+        )
+        if bnb_config:
+            model = prepare_model_for_kbit_training(model)
 
+        # --- LoRA (chỉ apply khi load fresh, không apply khi resume) ---
+        lora_cfg = cfg.get("lora", {})
+        if lora_cfg and lora_cfg.get("r", 0) > 0:
+            target_modules = find_all_linear_names(model)
+            peft_config = LoraConfig(
+                r=lora_cfg["r"],
+                lora_alpha=lora_cfg["alpha"],
+                lora_dropout=lora_cfg.get("dropout", 0.05),
+                target_modules=target_modules,
+                task_type="CAUSAL_LM",
+            )
+            model = get_peft_model(model, peft_config)
+
+    model.print_trainable_parameters()
     model.config.use_cache = False
     model.gradient_checkpointing_enable()
 
