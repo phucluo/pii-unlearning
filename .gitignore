@@ -5,10 +5,6 @@ data/tofu/*.json
 outputs/
 *.jsonl
 
-# Local session files
-.claude/
-CLAUDE.md
-
 # Model checkpoints
 *.bin
 *.safetensors
