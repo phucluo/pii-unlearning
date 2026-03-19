@@ -21,6 +21,18 @@ llama2-7b-chat:
   use_flash_attn: false
 
 qwen2.5-1.5b:
+  # BASE model — dùng cho SFT Exposed + Unlearning (memorization task)
+  # Lý do KHÔNG dùng Instruct: Instruct model kháng cự memorize facts,
+  # sinh ra "You are an AI assistant..." artifacts, loss converge kém
+  hf_key: "Qwen/Qwen2.5-1.5B"
+  question_start_tag: "Question: "
+  question_end_tag: "\n"
+  answer_tag: "Answer: "
+  answer_end_tag: ""
+  use_flash_attn: false
+
+qwen2.5-1.5b-instruct:
+  # INSTRUCT model — chỉ dùng khi cần chat/instruction following (KHÔNG dùng cho SFT Exposed)
   hf_key: "Qwen/Qwen2.5-1.5B-Instruct"
   question_start_tag: "<|im_start|>user\n"
   question_end_tag: "<|im_end|>\n"
@@ -29,9 +41,10 @@ qwen2.5-1.5b:
   use_flash_attn: true
 
 qwen2.5-7b:
+  # BASE model 7B
   hf_key: "Qwen/Qwen2.5-7B"
-  question_start_tag: "<|im_start|>user\n"
-  question_end_tag: "<|im_end|>\n"
-  answer_tag: "<|im_start|>assistant\n"
-  answer_end_tag: "<|im_end|>"
+  question_start_tag: "Question: "
+  question_end_tag: "\n"
+  answer_tag: "Answer: "
+  answer_end_tag: ""
   use_flash_attn: true
