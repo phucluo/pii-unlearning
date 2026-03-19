@@ -3,8 +3,9 @@ evaluate.py — Evaluate unlearned model on PII metrics.
 Mirrors UnlearnPII's evaluate_PII.py but simplified.
 
 Usage:
-  python evaluate.py --config configs/eval.yaml
-  python evaluate.py --config configs/eval.yaml --model_path=outputs/unlearn/npo/forget10
+  python evaluate.py --config configs/pii_eval.yaml
+  python evaluate.py --config configs/tofu_eval.yaml
+  python evaluate.py --config configs/pii_eval.yaml --model_path=outputs/unlearn/npo/forget10/llama2-7b-base
 """
 import json
 import os

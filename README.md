@@ -9,19 +9,25 @@ Research and Implementation of Machine Unlearning Techniques to Remove Personall
 ```
 pii-unlearning/
 ├── configs/
-│   ├── model_config.yaml    ← Model registry (chat templates)
-│   ├── sft.yaml             ← SFT Exposed config
-│   ├── unlearn.yaml         ← Unlearning config
-│   └── eval.yaml            ← Evaluation config
+│   ├── model_config.yaml    ← Model registry (chat templates) — shared
+│   ├── pii_sft.yaml         ← SFT Exposed config (UnlearnPII track)
+│   ├── pii_unlearn.yaml     ← Unlearning config (UnlearnPII track)
+│   ├── pii_eval.yaml        ← Evaluation config (UnlearnPII track)
+│   ├── tofu_sft.yaml        ← SFT Exposed config (TOFU track)
+│   ├── tofu_unlearn.yaml    ← Unlearning config (TOFU track)
+│   └── tofu_eval.yaml       ← Evaluation config (TOFU track)
 ├── src/
 │   ├── data_module.py       ← Dataset + tokenization (on-the-fly)
 │   ├── trainers.py          ← Loss functions (GA, NPO, DPO, ...)
 │   └── utils.py             ← Config loading, model setup
 ├── scripts/
-│   └── run_pipeline.sh      ← Full pipeline in one command
+│   ├── setup_data.sh        ← Clone UnlearnPII repo, copy PII + TOFU data
+│   ├── run_pii_pipeline.sh  ← Full pipeline: UnlearnPII track
+│   └── run_tofu_pipeline.sh ← Full pipeline: TOFU track
 ├── data/
-│   ├── raw/                 ← UnlearnPII JSON files (gitignored)
-│   └── test/                ← Eval-only data (gitignored)
+│   ├── raw/                 ← UnlearnPII PII JSON files (gitignored)
+│   ├── tofu/                ← TOFU JSON files (gitignored)
+│   └── test/                ← Eval-only data — shared (gitignored)
 ├── outputs/                 ← Checkpoints + results (gitignored)
 ├── notebooks/               ← EDA, visualization
 ├── train.py                 ← Entry point: SFT + Unlearning
@@ -39,34 +45,37 @@ pip install -r requirements.txt
 ```
 
 ### 2. Data
-Copy UnlearnPII data files into `data/`:
 ```bash
-# From the UnlearnPII repo:
-cp -r Toward-Practical-PII-Unlearning/data/PII/* data/raw/
-cp -r Toward-Practical-PII-Unlearning/data/test/* data/test/
-cp Toward-Practical-PII-Unlearning/data/idontknow.jsonl data/raw/
+# Clone UnlearnPII repo → copy PII + TOFU data → xóa clone
+bash scripts/setup_data.sh
 ```
 
 ### 3. Run Full Pipeline
 ```bash
-# One command: SFT → GA unlearning → Eval
-bash scripts/run_pipeline.sh grad_ascent forget10
+# UnlearnPII track
+bash scripts/run_pii_pipeline.sh grad_ascent forget10
+bash scripts/run_pii_pipeline.sh npo forget10
+bash scripts/run_pii_pipeline.sh aau_pii forget10
 
-# Try different methods:
-bash scripts/run_pipeline.sh npo forget10
-bash scripts/run_pipeline.sh dpo forget10
+# TOFU track
+bash scripts/run_tofu_pipeline.sh grad_ascent forget10
+bash scripts/run_tofu_pipeline.sh npo forget05
+bash scripts/run_tofu_pipeline.sh aau_pii forget10
 ```
 
 ### 4. Individual Steps
 ```bash
-# SFT only
-python train.py --config configs/sft.yaml
+# SFT
+python train.py --config configs/pii_sft.yaml
+python train.py --config configs/tofu_sft.yaml
 
-# Unlearn only
-python train.py --config configs/unlearn.yaml --forget_loss=npo
+# Unlearn
+python train.py --config configs/pii_unlearn.yaml --forget_loss=npo
+python train.py --config configs/tofu_unlearn.yaml --forget_loss=npo
 
-# Eval only
-python evaluate.py --config configs/eval.yaml --model_path=outputs/unlearn/npo/forget10
+# Eval
+python evaluate.py --config configs/pii_eval.yaml --model_path=outputs/unlearn/npo/forget10/llama2-7b-base
+python evaluate.py --config configs/tofu_eval.yaml --model_path=outputs/unlearn/npo/forget10/tofu/llama2-7b-base
 ```
 
 ## Supported Methods

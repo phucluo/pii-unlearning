@@ -3,9 +3,10 @@ train.py — Entry point for SFT Exposed and Unlearning.
 Mirrors UnlearnPII's finetune.py (mode=sft) and forget.py (mode=unlearn).
 
 Usage:
-  python train.py --config configs/sft.yaml                          # SFT
-  python train.py --config configs/unlearn.yaml                      # Unlearn (default GA)
-  python train.py --config configs/unlearn.yaml --forget_loss=npo    # Override method
+  python train.py --config configs/pii_sft.yaml                          # SFT (PII track)
+  python train.py --config configs/tofu_sft.yaml                         # SFT (TOFU track)
+  python train.py --config configs/pii_unlearn.yaml                      # Unlearn PII (default GA)
+  python train.py --config configs/tofu_unlearn.yaml --forget_loss=npo   # Unlearn TOFU
 """
 import os
 import json
