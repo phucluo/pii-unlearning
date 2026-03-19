@@ -28,9 +28,20 @@ cp Toward-Practical-PII-Unlearning/data/test/real_authors_perturbed.json data/te
 cp Toward-Practical-PII-Unlearning/data/test/world_facts_perturbed.json data/test/
 cp -r Toward-Practical-PII-Unlearning/data/test/targeted_extraction data/test/ 2>/dev/null || true
 
+# TOFU data → data/tofu/
+mkdir -p data/tofu
+cp Toward-Practical-PII-Unlearning/data/TOFU/forget01.json data/tofu/
+cp Toward-Practical-PII-Unlearning/data/TOFU/forget05.json data/tofu/
+cp Toward-Practical-PII-Unlearning/data/TOFU/forget10.json data/tofu/
+cp Toward-Practical-PII-Unlearning/data/TOFU/retain90.json data/tofu/
+cp Toward-Practical-PII-Unlearning/data/TOFU/retain95.json data/tofu/
+cp Toward-Practical-PII-Unlearning/data/TOFU/retain99.json data/tofu/
+cp Toward-Practical-PII-Unlearning/data/idontknow.jsonl data/tofu/   # dùng chung idk
+
 # Cleanup
 rm -rf Toward-Practical-PII-Unlearning
 
-echo "Data setup complete! Files in data/raw/ and data/test/"
-ls -la data/raw/
-ls -la data/test/
+echo "Data setup complete!"
+echo "  PII  → data/raw/  : $(ls data/raw/*.json 2>/dev/null | wc -l) files"
+echo "  Test → data/test/ : $(ls data/test/*.json 2>/dev/null | wc -l) files"
+echo "  TOFU → data/tofu/ : $(ls data/tofu/*.json 2>/dev/null | wc -l) files"

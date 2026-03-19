@@ -1,8 +1,12 @@
 # Data (too large for GitHub)
 data/raw/*.json
 data/test/*.json
+data/tofu/*.json
 outputs/
 *.jsonl
+
+# Claude internal session data
+.claude/
 
 # Model checkpoints
 *.bin

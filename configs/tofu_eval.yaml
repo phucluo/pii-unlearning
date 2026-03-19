@@ -1,0 +1,75 @@
+# =============================================================================
+# TOFU Evaluation — đánh giá model sau unlearning trên TOFU metrics
+# Usage: python evaluate.py --config configs/tofu_eval.yaml
+# Override: python evaluate.py --config configs/tofu_eval.yaml --model_path=outputs/unlearn/npo/forget10/tofu/llama2-7b-base
+# =============================================================================
+
+# --- Model ---
+model_family: llama2-7b-base
+model_path: outputs/unlearn/grad_ascent/forget10/tofu/llama2-7b-base
+quantization: 4bit
+
+# --- Dataset type (dùng trong evaluate.py để chọn metrics) ---
+dataset: TOFU
+
+# --- Eval Tasks ---
+# Tier 1: core metrics (bắt buộc)
+# Tier 2: robustness/generalization (nên chạy)
+eval_tasks:
+  # --- FORGET SET: model cần quên những gì ở đây ---
+  - name: eval_log_forget
+    data_path: data/tofu
+    split: forget10
+    question_key: question
+    answer_key: answer
+    perturbed_answer_key: perturbed_answer   # dùng cho truth_ratio
+    tier: 1
+
+  - name: eval_log_forget_paraphrase
+    data_path: data/tofu
+    split: forget10
+    question_key: paraphrased_question
+    answer_key: paraphrased_answer
+    perturbed_answer_key: perturbed_answer
+    tier: 2
+
+  # --- RETAIN SET: model cần giữ nguyên performance ---
+  - name: eval_log_retain
+    data_path: data/tofu
+    split: retain90
+    question_key: question
+    answer_key: answer
+    perturbed_answer_key: perturbed_answer
+    tier: 1
+
+  - name: eval_log_retain_paraphrase
+    data_path: data/tofu
+    split: retain90
+    question_key: paraphrased_question
+    answer_key: paraphrased_answer
+    perturbed_answer_key: perturbed_answer
+    tier: 2
+
+  # --- GENERALIZATION: real-world facts không liên quan đến forget set ---
+  - name: eval_real_world
+    data_path: data/test
+    split: world_facts_perturbed
+    question_key: question
+    answer_key: answer
+    tier: 2
+
+  - name: eval_real_author
+    data_path: data/test
+    split: real_authors_perturbed
+    question_key: question
+    answer_key: answer
+    tier: 2
+
+# --- Generation ---
+max_new_tokens: 128
+do_sample: false
+
+# --- Other ---
+batch_size: 16
+bf16: true
+save_dir: null               # defaults to model_path/eval_results

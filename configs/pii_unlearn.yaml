@@ -14,7 +14,7 @@ lora:
   dropout: 0.05
 
 # --- Data ---
-dataset: PII
+dataset: PII.                
 forget_data_path: data/raw
 retain_data_path: data/raw
 split: forget10              # forget1 | forget5 | forget10

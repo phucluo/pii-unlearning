@@ -1,0 +1,36 @@
+# =============================================================================
+# TOFU SFT Exposed — fine-tune base model để memorize TOFU author profiles
+# Usage: python train.py --config configs/tofu_sft.yaml
+# =============================================================================
+
+# --- Model ---
+model_family: llama2-7b-base
+quantization: 4bit
+lora:
+  r: 8
+  alpha: 16
+  dropout: 0.05
+
+# --- Data ---
+# retain99 ≈ 99% TOFU = ~3960/4000 QA pairs → dùng làm SFT full data
+# (UnlearnPII repo không có full.json cho TOFU; retain99 là xấp xỉ tốt nhất)
+dataset: TOFU
+data_path: data/tofu/retain99.json
+question_key: question
+answer_key: answer
+max_length: 500
+
+# --- Training ---
+mode: sft
+batch_size: 4
+gradient_accumulation_steps: 8
+num_epochs: 5
+lr: 2.0e-5
+weight_decay: 0.01
+bf16: true
+seed: 42
+
+# --- Output ---
+save_dir: outputs/sft_exposed/tofu/llama2-7b-base
+save_steps: 500
+resume: true

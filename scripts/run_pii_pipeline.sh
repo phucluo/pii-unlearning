@@ -1,7 +1,7 @@
 #!/bin/bash
 # =============================================================================
-# run_pipeline.sh — Full pipeline: SFT → Unlearn → Eval
-# Usage: bash scripts/run_pipeline.sh grad_ascent forget10
+# run_pii_pipeline.sh — Full pipeline cho UnlearnPII: SFT → Unlearn → Eval
+# Usage: bash scripts/run_pii_pipeline.sh grad_ascent forget10
 # =============================================================================
 set -e
 
@@ -19,7 +19,7 @@ if [ -d "$SFT_DIR" ] && [ -f "$SFT_DIR/config.json" ]; then
     echo "[Step 1] SFT model found at $SFT_DIR, skipping..."
 else
     echo "[Step 1] Running SFT Exposed..."
-    python train.py --config configs/sft.yaml \
+    python train.py --config configs/pii_sft.yaml \
         --model_family=$MODEL \
         --save_dir=$SFT_DIR
 fi
@@ -27,7 +27,7 @@ fi
 # --- Step 2: Unlearning ---
 UNLEARN_DIR="outputs/unlearn/${METHOD}/${SPLIT}/${MODEL}"
 echo "[Step 2] Running Unlearning: $METHOD on $SPLIT..."
-python train.py --config configs/unlearn.yaml \
+python train.py --config configs/pii_unlearn.yaml \
     --model_family=$MODEL \
     --model_path=$SFT_DIR \
     --forget_loss=$METHOD \
@@ -36,7 +36,7 @@ python train.py --config configs/unlearn.yaml \
 
 # --- Step 3: Evaluation ---
 echo "[Step 3] Running Evaluation..."
-python evaluate.py --config configs/eval.yaml \
+python evaluate.py --config configs/pii_eval.yaml \
     --model_family=$MODEL \
     --model_path=$UNLEARN_DIR \
     --save_dir=$UNLEARN_DIR/eval_results
