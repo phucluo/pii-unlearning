@@ -2,7 +2,7 @@
 # TOFU SFT Exposed — fine-tune base model để memorize TOFU author profiles
 # Usage: python train.py --config configs/tofu_sft.yaml [--key=value ...]
 #
-# Default: Qwen2.5-1.5B trên A100 (Colab Pro)
+# Default: Qwen2.5-1.5B BASE trên A100 (Colab Pro), LoRA r=64
 # Override bất kỳ tham số nào qua CLI mà không cần sửa file này.
 #
 # ┌─────────────────────────────────────────────────────────────────────────┐
@@ -44,8 +44,8 @@ model_family: qwen2.5-1.5b
 # Override: --quantization=4bit (dùng cho 7B+ hoặc GPU < 24GB)
 quantization: none
 lora:
-  r: 16
-  alpha: 32
+  r: 64          # tăng từ 16 → 64: 4× capacity (73.9M trainable params thay vì 18.4M)
+  alpha: 128     # = 2×r (convention chuẩn)
   dropout: 0.05
 
 # --- Data ---
