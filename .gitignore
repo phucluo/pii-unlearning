@@ -5,8 +5,9 @@ data/tofu/*.json
 outputs/
 *.jsonl
 
-# Claude internal session data
+# Claude internal session data (do not expose)
 .claude/
+CLAUDE.md
 
 # Model checkpoints
 *.bin
