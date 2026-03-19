@@ -16,18 +16,18 @@
 # │     --model_family=llama2-7b-base --quantization=4bit \                 │
 # │     --batch_size=8 --gradient_accumulation_steps=4                      │
 # │                                                                         │
-# │ L4 22.5GB + Qwen2.5-1.5B:                                              │
+# │ L4 22.5GB + Qwen2.5-1.5B (r=64):                                       │
 # │   python train.py --config configs/tofu_sft.yaml \                      │
-# │     --batch_size=8 --gradient_accumulation_steps=4                      │
+# │     --batch_size=4 --gradient_accumulation_steps=8                      │
 # │                                                                         │
 # │ L4 22.5GB + Llama2-7B:                                                  │
 # │   python train.py --config configs/tofu_sft.yaml \                      │
 # │     --model_family=llama2-7b-base --quantization=4bit \                 │
 # │     --batch_size=4 --gradient_accumulation_steps=8                      │
 # │                                                                         │
-# │ T4 16GB + Qwen2.5-1.5B:                                                 │
+# │ T4 16GB + Qwen2.5-1.5B (r=64):                                          │
 # │   python train.py --config configs/tofu_sft.yaml \                      │
-# │     --batch_size=4 --gradient_accumulation_steps=8 --bf16=false         │
+# │     --batch_size=2 --gradient_accumulation_steps=16 --bf16=false        │
 # │                                                                         │
 # │ T4 16GB + Llama2-7B:                                                    │
 # │   python train.py --config configs/tofu_sft.yaml \                      │
