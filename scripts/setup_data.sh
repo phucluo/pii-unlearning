@@ -11,6 +11,8 @@ if [ ! -d "Toward-Practical-PII-Unlearning" ]; then
 fi
 
 echo "Copying data files..."
+mkdir -p data/raw data/test data/tofu
+
 # PII data → data/raw/
 cp Toward-Practical-PII-Unlearning/data/PII/full_with_qa.json data/raw/
 cp Toward-Practical-PII-Unlearning/data/PII/forget1.json data/raw/
@@ -30,7 +32,6 @@ cp -r Toward-Practical-PII-Unlearning/data/test/targeted_extraction data/test/ 2
 
 # TOFU data → data/tofu/
 # forget/retain splits (có paraphrased + perturbed fields, cần cho eval)
-mkdir -p data/tofu
 cp Toward-Practical-PII-Unlearning/data/TOFU/forget01.json data/tofu/
 cp Toward-Practical-PII-Unlearning/data/TOFU/forget05.json data/tofu/
 cp Toward-Practical-PII-Unlearning/data/TOFU/forget10.json data/tofu/
