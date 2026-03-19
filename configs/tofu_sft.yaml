@@ -1,36 +1,79 @@
 # =============================================================================
 # TOFU SFT Exposed — fine-tune base model để memorize TOFU author profiles
-# Usage: python train.py --config configs/tofu_sft.yaml
+# Usage: python train.py --config configs/tofu_sft.yaml [--key=value ...]
+#
+# Default: Qwen2.5-1.5B trên A100 (Colab Pro)
+# Override bất kỳ tham số nào qua CLI mà không cần sửa file này.
+#
+# ┌─────────────────────────────────────────────────────────────────────────┐
+# │ PRESET NHANH — copy-paste vào Colab/Kaggle                             │
+# │                                                                         │
+# │ A100 40GB + Qwen2.5-1.5B (default, không cần override):                │
+# │   python train.py --config configs/tofu_sft.yaml                        │
+# │                                                                         │
+# │ A100 40GB + Llama2-7B:                                                  │
+# │   python train.py --config configs/tofu_sft.yaml \                      │
+# │     --model_family=llama2-7b-base --quantization=4bit \                 │
+# │     --batch_size=8 --gradient_accumulation_steps=4                      │
+# │                                                                         │
+# │ L4 22.5GB + Qwen2.5-1.5B:                                              │
+# │   python train.py --config configs/tofu_sft.yaml \                      │
+# │     --batch_size=8 --gradient_accumulation_steps=4                      │
+# │                                                                         │
+# │ L4 22.5GB + Llama2-7B:                                                  │
+# │   python train.py --config configs/tofu_sft.yaml \                      │
+# │     --model_family=llama2-7b-base --quantization=4bit \                 │
+# │     --batch_size=4 --gradient_accumulation_steps=8                      │
+# │                                                                         │
+# │ T4 16GB + Qwen2.5-1.5B:                                                 │
+# │   python train.py --config configs/tofu_sft.yaml \                      │
+# │     --batch_size=4 --gradient_accumulation_steps=8 --bf16=false         │
+# │                                                                         │
+# │ T4 16GB + Llama2-7B:                                                    │
+# │   python train.py --config configs/tofu_sft.yaml \                      │
+# │     --model_family=llama2-7b-base --quantization=4bit \                 │
+# │     --batch_size=2 --gradient_accumulation_steps=16 --bf16=false        │
+# │                                                                         │
+# │ Tất cả preset → effective batch size = 32                               │
+# └─────────────────────────────────────────────────────────────────────────┘
 # =============================================================================
 
 # --- Model ---
-model_family: llama2-7b-base
-quantization: 4bit
+# Override: --model_family=llama2-7b-base
+model_family: qwen2.5-1.5b
+# Override: --quantization=4bit (dùng cho 7B+ hoặc GPU < 24GB)
+quantization: none
 lora:
-  r: 8
-  alpha: 16
+  r: 16
+  alpha: 32
   dropout: 0.05
 
 # --- Data ---
-# retain99 ≈ 99% TOFU = ~3960/4000 QA pairs → dùng làm SFT full data
-# (UnlearnPII repo không có full.json cho TOFU; retain99 là xấp xỉ tốt nhất)
+# PHẢI dùng full.json (tất cả 4000 mẫu) cho SFT Exposed
+# Lý do: model cần HỌC toàn bộ data (kể cả forget10) trước khi unlearning
+# Nguồn: bash scripts/setup_data.sh → tự download từ HuggingFace locuslab/TOFU
 dataset: TOFU
-data_path: data/tofu/retain99.json
+data_path: data/tofu/full.json
 question_key: question
 answer_key: answer
 max_length: 500
 
 # --- Training ---
+# Default: A100 40GB + Qwen2.5-1.5B → effective batch = 16 × 2 = 32
+# Override batch_size và gradient_accumulation_steps theo GPU (xem preset ở trên)
 mode: sft
-batch_size: 4
-gradient_accumulation_steps: 8
+batch_size: 16
+gradient_accumulation_steps: 2
 num_epochs: 5
 lr: 2.0e-5
 weight_decay: 0.01
+# Override: --bf16=false nếu dùng T4 (không hỗ trợ native bf16)
 bf16: true
 seed: 42
 
 # --- Output ---
-save_dir: outputs/sft_exposed/tofu/llama2-7b-base
-save_steps: 500
+# ${model_family} tự resolve thành tên model → save_dir tự đổi theo model
+# Ví dụ: llama2-7b-base → outputs/sft_exposed/tofu/llama2-7b-base
+save_dir: outputs/sft_exposed/tofu/${model_family}
+save_steps: 200
 resume: true

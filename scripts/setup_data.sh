@@ -29,6 +29,7 @@ cp Toward-Practical-PII-Unlearning/data/test/world_facts_perturbed.json data/tes
 cp -r Toward-Practical-PII-Unlearning/data/test/targeted_extraction data/test/ 2>/dev/null || true
 
 # TOFU data → data/tofu/
+# forget/retain splits (có paraphrased + perturbed fields, cần cho eval)
 mkdir -p data/tofu
 cp Toward-Practical-PII-Unlearning/data/TOFU/forget01.json data/tofu/
 cp Toward-Practical-PII-Unlearning/data/TOFU/forget05.json data/tofu/
@@ -37,6 +38,20 @@ cp Toward-Practical-PII-Unlearning/data/TOFU/retain90.json data/tofu/
 cp Toward-Practical-PII-Unlearning/data/TOFU/retain95.json data/tofu/
 cp Toward-Practical-PII-Unlearning/data/TOFU/retain99.json data/tofu/
 cp Toward-Practical-PII-Unlearning/data/idontknow.jsonl data/tofu/   # dùng chung idk
+
+# TOFU full.json → dùng cho SFT Exposed (phải học TẤT CẢ 4000 mẫu trước khi unlearn)
+# Download trực tiếp từ HuggingFace locuslab/TOFU subset="full"
+echo "Downloading TOFU full split from HuggingFace..."
+python3 - <<'EOF'
+import json
+from datasets import load_dataset
+
+ds = load_dataset("locuslab/TOFU", "full", split="train")
+data = [{"question": row["question"], "answer": row["answer"]} for row in ds]
+with open("data/tofu/full.json", "w") as f:
+    json.dump(data, f, indent=2)
+print(f"  Saved data/tofu/full.json ({len(data)} samples)")
+EOF
 
 # Cleanup
 rm -rf Toward-Practical-PII-Unlearning
