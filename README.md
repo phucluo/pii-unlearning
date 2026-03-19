@@ -67,15 +67,25 @@ bash scripts/setup_data.sh        # tải data — chạy 1 lần duy nhất
 
 ### Chọn GPU preset
 
+#### Bước 1 — SFT (1 model trong VRAM)
+
 | GPU | VRAM | Platform | Qwen2.5-1.5B | Llama2-7B |
 |-----|------|----------|-------------|-----------|
 | A100 | 40 GB | Colab Pro | `batch_size=16` *(default)* | `--batch_size=8 --quantization=4bit` |
 | L4 | 22.5 GB | Colab Pro | `--batch_size=4 --gradient_accumulation_steps=8` | `--batch_size=4 --quantization=4bit` |
-| T4 | 16 GB | Colab / Kaggle | `--batch_size=2 --gradient_accumulation_steps=16 --bf16=false` | `--batch_size=2 --quantization=4bit --bf16=false` |
-| P100 | 16 GB | Kaggle | `--batch_size=2 --gradient_accumulation_steps=16 --bf16=false` | `--batch_size=2 --quantization=4bit --bf16=false` |
+| T4 / P100 | 16 GB | Colab / Kaggle | `--batch_size=2 --gradient_accumulation_steps=16 --bf16=false` | `--batch_size=2 --quantization=4bit --bf16=false` |
 
-> Tất cả preset giữ **effective batch = 32** (`batch_size × gradient_accumulation_steps`).
+#### Bước 2 — Unlearning (NPO/DPO cần 2 model; GA/Task Vector chỉ cần 1)
+
+| GPU | VRAM | NPO / DPO | GA / Task Vector |
+|-----|------|-----------|-----------------|
+| A100 | 40 GB | `batch_size=8` | `batch_size=16` |
+| L4 | 22.5 GB | `--batch_size=4 --gradient_accumulation_steps=8` | `--batch_size=8 --gradient_accumulation_steps=4` |
+| T4 / P100 | 16 GB | `--batch_size=2 --gradient_accumulation_steps=8 --bf16=false` | `--batch_size=4 --gradient_accumulation_steps=4 --bf16=false` |
+
+> Tất cả preset giữ **effective batch = 32** (SFT) hoặc ≥ 16 (unlearning).
 > **Kaggle**: vào *Settings → Internet → On* trước khi chạy.
+> **NPO/DPO**: load thêm frozen oracle model → tốn gấp đôi VRAM base model so với GA/Task Vector.
 
 ### Template notebook (Colab & Kaggle đều dùng được)
 
