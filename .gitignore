@@ -5,7 +5,7 @@ data/tofu/*.json
 outputs/
 *.jsonl
 
-# Claude internal session data (do not expose)
+# Local session files
 .claude/
 CLAUDE.md
 
