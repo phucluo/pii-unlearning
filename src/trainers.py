@@ -122,19 +122,30 @@ def dpo_loss(model, oracle_model, forget_batch, idk_batch,
     return loss, forget_out
 
 
-def task_vector_loss(model, forget_batch, retain_batch, retain_weight=1.0, **kwargs):
+def task_vector_loss(model, forget_batch, retain_batch, retain_weight=0.0, **kwargs):
     """
     Task Vector: train normally on forget set (CE loss), then SUBTRACT the learned
     LoRA weights from base. The subtraction is done AFTER training, not during.
-    So the training loss here is standard SFT on forget set.
+    So the training loss here is standard SFT on forget set ONLY.
+
+    IMPORTANT: retain_weight MUST be 0.0 for correct Task Vector behavior.
+    If retain data is included here, the task vector will contain both forget AND
+    retain knowledge changes. When negated, retain knowledge gets reversed too,
+    causing collateral damage on the retain set.
+    Correct formula: task_vec = theta_forget_only - theta_SFT (pure forget direction)
     """
     f_ids, f_labels, f_mask = [x.to(model.device) for x in forget_batch]
     loss, outputs = compute_ce_loss(model, f_ids, f_labels, f_mask)
 
+    # NOTE: retain regularization intentionally disabled for Task Vector.
+    # The task vector must capture ONLY forget-specific changes.
     if retain_weight > 0 and retain_batch is not None:
-        r_ids, r_labels, r_mask = [x.to(model.device) for x in retain_batch]
-        retain_loss, _ = compute_ce_loss(model, r_ids, r_labels, r_mask)
-        loss = loss + retain_weight * retain_loss
+        import warnings
+        warnings.warn(
+            "[Task Vector] retain_weight > 0 will pollute the task vector with retain "
+            "knowledge and degrade retain utility after negation. Use retain_weight=0.0.",
+            UserWarning, stacklevel=2,
+        )
 
     return loss, outputs
 
