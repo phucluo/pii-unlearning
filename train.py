@@ -169,13 +169,11 @@ def run_unlearn(cfg):
     model, tokenizer = load_model_and_tokenizer(cfg, model_cfg)
     dataloader = get_forget_retain_dataloaders(cfg, tokenizer)
 
-    # Oracle model (for NPO/DPO)
+    # Oracle model (NPO/DPO: reference during training | task_vector: SFT snapshot for negation)
     oracle_model = None
-    if cfg["forget_loss"] in NEEDS_ORACLE:
+    if cfg["forget_loss"] in NEEDS_ORACLE or cfg["forget_loss"] == "task_vector":
         print("Loading oracle (reference) model...")
         oracle_cfg = copy.deepcopy(cfg)
-        # oracle = SFT model (frozen) — giống UnlearnPII, giữ nguyên model_path
-        # lora.r=0 chỉ có tác dụng nếu model_path không phải PEFT checkpoint
         oracle_cfg["lora"] = {"r": 0}
         oracle_model, _ = load_model_and_tokenizer(oracle_cfg, model_cfg)
         oracle_model.eval()
@@ -241,6 +239,20 @@ def run_unlearn(cfg):
         if max_steps and global_step >= max_steps:
             print(f"Reached max_steps={max_steps}, stopping.")
             break
+
+    # Task Vector negation: θ_unlearn = θ_SFT - α*(θ_forget - θ_SFT) = 2*θ_SFT - θ_forget
+    if cfg["forget_loss"] == "task_vector":
+        print("[Task Vector] Applying negation: θ_unlearn = 2×θ_SFT - θ_forget ...")
+        tv_alpha = cfg.get("tv_alpha", 1.0)
+        with torch.no_grad():
+            for (name, param), (_, sft_param) in zip(
+                model.named_parameters(), oracle_model.named_parameters()
+            ):
+                if param.requires_grad:
+                    # task_vector = θ_forget - θ_SFT
+                    # negated     = θ_SFT - α * task_vector
+                    param.data = sft_param.data - tv_alpha * (param.data - sft_param.data)
+        print(f"[Task Vector] Negation done (alpha={tv_alpha})")
 
     save_model(model, tokenizer, save_dir)
 
