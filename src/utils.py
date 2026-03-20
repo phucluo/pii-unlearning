@@ -158,7 +158,12 @@ def load_model_and_tokenizer(cfg, model_cfg):
             )
             model = get_peft_model(model, peft_config)
 
-    model.print_trainable_parameters()
+    # print_trainable_parameters() chỉ có trên PEFT model
+    if hasattr(model, "print_trainable_parameters"):
+        model.print_trainable_parameters()
+    else:
+        total = sum(p.numel() for p in model.parameters())
+        print(f"all params: {total:,} (non-PEFT model, fully frozen for oracle use)")
     model.config.use_cache = False
     model.gradient_checkpointing_enable()
 
