@@ -5,11 +5,11 @@
 # =============================================================================
 
 # --- Model ---
-model_family: llama2-7b-base
-model_path: outputs/sft_exposed/tofu/llama2-7b-base
-quantization: 4bit
+model_family: qwen2.5-1.5b
+model_path: outputs/sft_exposed/tofu/qwen2.5-1.5b
+quantization: none
 lora:
-  r: 8
+  r: 8           # unused khi model_path là PEFT checkpoint — sẽ load r=64 từ SFT
   alpha: 16
   dropout: 0.05
 
@@ -40,4 +40,4 @@ bf16: true
 seed: 42
 
 # --- Output ---
-save_dir: outputs/unlearn/${forget_loss}/${split}/tofu/llama2-7b-base
+save_dir: outputs/unlearn/${forget_loss}/${split}/tofu/${model_family}
