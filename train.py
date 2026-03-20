@@ -174,8 +174,9 @@ def run_unlearn(cfg):
     if cfg["forget_loss"] in NEEDS_ORACLE:
         print("Loading oracle (reference) model...")
         oracle_cfg = copy.deepcopy(cfg)
+        # oracle = SFT model (frozen) — giống UnlearnPII, giữ nguyên model_path
+        # lora.r=0 chỉ có tác dụng nếu model_path không phải PEFT checkpoint
         oracle_cfg["lora"] = {"r": 0}
-        oracle_cfg.pop("model_path", None)       # oracle luôn load từ HF
         oracle_model, _ = load_model_and_tokenizer(oracle_cfg, model_cfg)
         oracle_model.eval()
         for p in oracle_model.parameters():
