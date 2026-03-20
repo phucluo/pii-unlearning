@@ -15,7 +15,7 @@ from pathlib import Path
 from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
-from src.utils import parse_args, load_config, get_model_identifiers
+from src.utils import parse_args, load_config, get_model_identifiers, load_model_and_tokenizer
 from src.data_module import SFTDataset, sft_collator, convert_to_model_format
 from src.trainers import get_batch_loss
 
@@ -117,25 +117,9 @@ def run_eval(cfg):
     print("=" * 60)
 
     model_cfg = get_model_identifiers(cfg["model_family"])
-    model_id = model_cfg["hf_key"]
 
-    # Load model
-    torch_dtype = torch.bfloat16 if cfg.get("bf16", True) else torch.float16
-    quant = cfg.get("quantization", "none")
-    bnb_config = None
-    if quant == "4bit":
-        bnb_config = BitsAndBytesConfig(
-            load_in_4bit=True, bnb_4bit_quant_type="nf4",
-            bnb_4bit_compute_dtype=torch_dtype, bnb_4bit_use_double_quant=True,
-        )
-
-    model = AutoModelForCausalLM.from_pretrained(
-        cfg["model_path"], quantization_config=bnb_config,
-        torch_dtype=torch_dtype, device_map="auto", trust_remote_code=True,
-    )
-    tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
-    if tokenizer.pad_token_id is None:
-        tokenizer.pad_token_id = tokenizer.eos_token_id
+    # Load model — handles both full models and PEFT/LoRA checkpoints
+    model, tokenizer = load_model_and_tokenizer(cfg, model_cfg)
 
     device = model.device
 
