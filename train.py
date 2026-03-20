@@ -182,6 +182,14 @@ def run_unlearn(cfg):
 
     loss_fn = LOSS_REGISTRY[cfg["forget_loss"]]
 
+    # Task Vector requires retain_weight=0 — override + warn if misconfigured
+    if cfg["forget_loss"] == "task_vector":
+        rw = cfg.get("retain_weight", 0.0)
+        if rw != 0.0:
+            print(f"[WARN] Task Vector: retain_weight={rw} will pollute the task vector.")
+            print(f"[WARN] Overriding retain_weight → 0.0 for correct Task Vector behavior.")
+            cfg["retain_weight"] = 0.0
+
     optimizer = torch.optim.AdamW(
         [p for p in model.parameters() if p.requires_grad],
         lr=cfg["lr"], weight_decay=cfg.get("weight_decay", 0.01),
@@ -240,10 +248,10 @@ def run_unlearn(cfg):
             print(f"Reached max_steps={max_steps}, stopping.")
             break
 
-    # Task Vector negation: θ_unlearn = θ_SFT - α*(θ_forget - θ_SFT) = 2*θ_SFT - θ_forget
+    # Task Vector negation: θ_unlearn = θ_SFT - α*(θ_forget - θ_SFT) = (1+α)*θ_SFT - α*θ_forget
     if cfg["forget_loss"] == "task_vector":
-        print("[Task Vector] Applying negation: θ_unlearn = 2×θ_SFT - θ_forget ...")
         tv_alpha = cfg.get("tv_alpha", 1.0)
+        print(f"[Task Vector] Applying negation: θ_unlearn = {1+tv_alpha}×θ_SFT - {tv_alpha}×θ_forget (alpha={tv_alpha}) ...")
         with torch.no_grad():
             for (name, param), (_, sft_param) in zip(
                 model.named_parameters(), oracle_model.named_parameters()
