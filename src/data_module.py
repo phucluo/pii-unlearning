@@ -197,7 +197,8 @@ def get_forget_retain_dataloaders(cfg, tokenizer):
     """Create forget+retain dataloader from config."""
     # Determine split files
     split = cfg["split"]  # e.g. "forget10"
-    retain_split = split.replace("forget", "retain")  # "retain90"
+    pct = int(split.replace("forget", ""))           # 10
+    retain_split = f"retain{100 - pct}"              # "retain90"
 
     forget_path = os.path.join(cfg["forget_data_path"], f"{split}.json")
     retain_path = os.path.join(cfg["retain_data_path"], f"{retain_split}.json")
