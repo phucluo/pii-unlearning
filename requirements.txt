@@ -6,6 +6,8 @@ accelerate>=0.30
 datasets
 trl
 rouge-score
+nltk
+scipy
 numpy
 pandas
 pyyaml
