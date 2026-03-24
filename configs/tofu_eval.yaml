@@ -52,23 +52,8 @@ eval_tasks:
     perturbed_answer_key: perturbed_answer
     tier: 2
 
-  # --- GENERALIZATION (real-world) ---
-  # These use perturbed answers for Truth Ratio + normalized Probability
-  - name: eval_real_world
-    data_path: data/test
-    split: world_facts_perturbed
-    question_key: question
-    answer_key: answer
-    perturbed_answer_key: perturbed_answer
-    tier: 2
-
-  - name: eval_real_author
-    data_path: data/test
-    split: real_authors_perturbed
-    question_key: question
-    answer_key: answer
-    perturbed_answer_key: perturbed_answer
-    tier: 2
+  # eval_real_world và eval_real_author là split đặc thù của TOFU paper
+  # UnlearnPII không dùng 2 task này — bỏ để phù hợp với evaluation style của repo
 
 # --- Generation ---
 max_new_tokens: 128
