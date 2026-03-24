@@ -29,6 +29,8 @@ cp Toward-Practical-PII-Unlearning/data/test/test_retain_pii.json data/test/
 cp Toward-Practical-PII-Unlearning/data/test/real_authors_perturbed.json data/test/
 cp Toward-Practical-PII-Unlearning/data/test/world_facts_perturbed.json data/test/
 cp -r Toward-Practical-PII-Unlearning/data/test/targeted_extraction data/test/ 2>/dev/null || true
+# TOFU retain test set (400 mẫu, có paraphrased + perturbed fields — dùng cho eval retain)
+cp Toward-Practical-PII-Unlearning/data/test/unused_test/test_retain_tofu.json data/test/
 
 # TOFU data → data/tofu/
 # forget/retain splits (có paraphrased + perturbed fields, cần cho eval)

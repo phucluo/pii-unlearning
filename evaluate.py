@@ -2,14 +2,20 @@
 evaluate.py — Evaluate unlearned model on TOFU / UnlearnPII metrics.
 Follows the evaluation methodology of:
   https://github.com/pariidanDKE/Toward-Practical-PII-Unlearning/blob/main/evaluate_PII.py
+  https://github.com/pariidanDKE/Toward-Practical-PII-Unlearning/blob/main/aggregate_eval_stat.py
 
 Metrics implemented:
-  - Per-token GT loss (avg_gt_loss)
+  - Per-token GT loss (avg_gt_loss), Perplexity
   - ROUGE-L recall, ROUGE-1 recall
   - Fluency (n-gram entropy)
-  - Truth Ratio (requires perturbed answers)
+  - Truth Ratio (requires base_answer_key + perturbed_answer_key)
   - Probability (normalized GT probability)
-  - Model Utility (harmonic mean of non-forget metrics)
+  - Model Utility (harmonic mean of non-forget, non-rephrase metrics)
+  - PII Leakage Rate (exact substring match)
+
+Key differences from original UnlearnPII:
+  - Batch generation with left-padding for speed (gen_batch_size config)
+  - base_answer_key support for correct Truth Ratio computation
 
 Usage:
   python evaluate.py --config configs/tofu_eval.yaml
@@ -111,7 +117,6 @@ class PerturbedDataset(torch.utils.data.Dataset):
 
 def perturbed_collator(batch):
     """Collate perturbed data — each sample has multiple perturbed answers."""
-    # batch: list of (input_ids, labels, mask, idx) where input_ids is (num_perturb, seq_len)
     input_ids = torch.stack([b[0] for b in batch])    # (bs, num_perturb, seq_len)
     labels = torch.stack([b[1] for b in batch])
     masks = torch.stack([b[2] for b in batch])
@@ -161,14 +166,18 @@ def compute_loss_metrics(model, dataloader, device):
 
 # ========================= CORE EVAL: PERTURBATION RATIO =========================
 
-def eval_perturbation_ratio(model, gt_dataloader, perturb_dataset, device, batch_size=4):
+def eval_perturbation_ratio(model, base_dataloader, perturb_dataset, device, batch_size=4):
     """
-    Compute Truth Ratio = exp(gt_loss_per_token - perturb_loss_per_token.mean).
-    Mirrors UnlearnPII's eval_perturbation_ratio().
+    Compute Truth Ratio following UnlearnPII's eval_perturbation_ratio().
+
+    Truth Ratio = exp(perturb_loss_mean - base_loss)
+    where:
+      - base_loss = per-token loss on base_answer_key (paraphrased_answer)
+      - perturb_loss = per-token loss on perturbed_answer_key (perturbed answers)
 
     Args:
         model: the model to evaluate
-        gt_dataloader: dataloader for ground truth QA pairs
+        base_dataloader: dataloader for QA pairs using base_answer_key (paraphrased_answer)
         perturb_dataset: PerturbedDataset with perturbed answers
         device: cuda/cpu
         batch_size: batch size for perturbed eval
@@ -180,11 +189,11 @@ def eval_perturbation_ratio(model, gt_dataloader, perturb_dataset, device, batch
         "truth_ratio": {},
     }
 
-    # First pass: get GT loss per sample (reuse from loss_metrics if available)
-    gt_losses = {}
+    # First pass: get base (paraphrased) loss per sample
+    base_losses = {}
     sample_idx = 0
     with torch.no_grad():
-        for batch in tqdm(gt_dataloader, desc="GT loss for Truth Ratio", leave=False):
+        for batch in tqdm(base_dataloader, desc="Base loss for Truth Ratio", leave=False):
             input_ids = batch["input_ids"].to(device)
             labels = batch["labels"].to(device)
             attention_mask = batch["attention_mask"].to(device)
@@ -193,7 +202,7 @@ def eval_perturbation_ratio(model, gt_dataloader, perturb_dataset, device, batch
             per_sample_loss = get_batch_loss(outputs.logits, labels)
 
             for i in range(input_ids.size(0)):
-                gt_losses[sample_idx + i] = per_sample_loss[i].item()
+                base_losses[sample_idx + i] = per_sample_loss[i].item()
             sample_idx += input_ids.size(0)
 
     # Second pass: get perturbed loss per sample
@@ -214,26 +223,29 @@ def eval_perturbation_ratio(model, gt_dataloader, perturb_dataset, device, batch
             perturb_loss = perturb_loss.view(bs, num_perturb)  # (bs, num_perturb)
 
             for i, idx in enumerate(indices):
-                gt_loss_val = gt_losses[idx]
+                base_loss_val = base_losses[idx]
                 perturb_loss_vals = perturb_loss[i].cpu().numpy().tolist()
                 mean_perturb_loss = np.mean(perturb_loss_vals)
 
                 eval_logs["average_perturb_loss"][idx] = perturb_loss_vals
-                eval_logs["avg_paraphrased_loss"][idx] = gt_loss_val
-                eval_logs["truth_ratio"][idx] = float(np.exp(gt_loss_val - mean_perturb_loss))
+                eval_logs["avg_paraphrased_loss"][idx] = base_loss_val
+                eval_logs["truth_ratio"][idx] = float(np.exp(mean_perturb_loss - base_loss_val))
 
     return eval_logs
 
 
-# ========================= CORE EVAL: GENERATION =========================
+# ========================= CORE EVAL: GENERATION (BATCH) =========================
 
 def compute_generation_metrics(model, tokenizer, dataset, model_configs,
-                               max_new_tokens=128, device="cuda"):
+                               max_new_tokens=128, device="cuda", gen_batch_size=1):
     """
-    Generate answers and compute:
+    Generate answers in batches and compute:
       - ROUGE-L recall, ROUGE-1 recall
       - Fluency (n-gram entropy)
-      - PII leakage (exact substring match — basic version)
+      - PII leakage (exact substring match)
+
+    Uses left-padding for batch generation (identical results to single generation
+    with greedy decoding on models with RoPE like Qwen2.5).
 
     Returns: (eval_logs, gen_details)
     """
@@ -249,29 +261,63 @@ def compute_generation_metrics(model, tokenizer, dataset, model_configs,
     q_end = model_configs["question_end_tag"]
     a_start = model_configs["answer_tag"]
 
-    rouge1_recall = {}
-    rougeL_recall = {}
-    gen_texts_list = []
-    gen_details = []
-
-    for i in tqdm(range(len(dataset)), desc="Generating", leave=False):
+    # Pre-build all prompts
+    prompts = []
+    gold_answers = []
+    pii_lists = []
+    for i in range(len(dataset)):
         item = dataset.data[i]
         question = item[dataset.question_key]
         gold_answer = item[dataset.answer_key]
-        subject_pii = item.get("subject_pii", [])
-
-        # Build prompt
         prompt = q_start + question + q_end + a_start
-        input_ids = tokenizer(prompt, return_tensors="pt").input_ids.to(device)
+        prompts.append(prompt)
+        gold_answers.append(gold_answer)
+        pii_lists.append(item.get("subject_pii", []))
+
+    # Batch generation with left-padding
+    original_padding_side = tokenizer.padding_side
+    tokenizer.padding_side = "left"
+
+    gen_texts_list = []
+    num_batches = (len(prompts) + gen_batch_size - 1) // gen_batch_size
+
+    for batch_idx in tqdm(range(num_batches), desc="Generating", leave=False):
+        start = batch_idx * gen_batch_size
+        end = min(start + gen_batch_size, len(prompts))
+        batch_prompts = prompts[start:end]
+
+        inputs = tokenizer(
+            batch_prompts, return_tensors="pt", padding=True,
+            truncation=True, max_length=500,
+        ).to(device)
 
         with torch.no_grad():
             gen_ids = model.generate(
-                input_ids, max_new_tokens=max_new_tokens, do_sample=False,
+                **inputs,
+                max_new_tokens=max_new_tokens,
+                do_sample=False,
                 pad_token_id=tokenizer.pad_token_id,
             )
 
-        gen_text = tokenizer.decode(gen_ids[0][input_ids.shape[1]:], skip_special_tokens=True)
-        gen_texts_list.append(gen_text)
+        # Decode only generated tokens (after input)
+        for j in range(len(batch_prompts)):
+            input_len = inputs["attention_mask"][j].sum().item()
+            gen_text = tokenizer.decode(
+                gen_ids[j][input_len:], skip_special_tokens=True
+            )
+            gen_texts_list.append(gen_text)
+
+    # Restore padding side
+    tokenizer.padding_side = original_padding_side
+
+    # Compute ROUGE + PII leakage
+    rouge1_recall = {}
+    rougeL_recall = {}
+    gen_details = []
+
+    for i in range(len(prompts)):
+        gen_text = gen_texts_list[i]
+        gold_answer = gold_answers[i]
 
         # ROUGE
         if scorer:
@@ -284,13 +330,13 @@ def compute_generation_metrics(model, tokenizer, dataset, model_configs,
 
         # PII leakage (basic exact match)
         pii_leaked = 0
-        for pii_val in subject_pii:
+        for pii_val in pii_lists[i]:
             if pii_val.lower() in gen_text.lower():
                 pii_leaked = 1
                 break
 
         gen_details.append({
-            "question": question,
+            "question": prompts[i],
             "gold": gold_answer,
             "generated": gen_text,
             "rouge1_recall": rouge1_recall[i],
@@ -318,7 +364,7 @@ def compute_aggregate_metrics(all_task_logs, eval_task_configs):
       - Probability per task
       - Truth Ratio per task (forget vs non-forget use different formulas)
       - ROUGE per task
-      - Model Utility = hmean of non-forget metrics
+      - Model Utility = hmean of non-forget, non-rephrase metrics
 
     Args:
         all_task_logs: dict { task_name: eval_logs }
@@ -356,7 +402,7 @@ def compute_aggregate_metrics(all_task_logs, eval_task_configs):
                 gt_probs = np.exp(-1 * np.array(list(logs["avg_gt_loss"].values())))
                 output[f"Prob. {display}"] = float(np.mean(gt_probs))
             elif "average_perturb_loss" in logs:
-                # For real-world: normalized probability
+                # For real-world/real-author: normalized probability
                 avg_true = np.exp(-1 * np.array(list(logs["avg_gt_loss"].values())))
                 avg_false = np.exp(-1 * np.array(list(logs["average_perturb_loss"].values())))
                 avg_all = np.concatenate([np.expand_dims(avg_true, axis=-1), avg_false], axis=1).sum(-1)
@@ -390,11 +436,12 @@ def compute_aggregate_metrics(all_task_logs, eval_task_configs):
         if "fluency" in logs:
             output[f"Fluency {display}"] = logs["fluency"]
 
-    # --- Model Utility: hmean of non-forget metrics ---
+    # --- Model Utility: hmean of non-forget, non-rephrase metrics ---
+    # Follows UnlearnPII: excludes any metric with "Forget" or "Rephrase" in the name
     utility_cands = []
     for k, v in output.items():
-        if "Forget" not in k and "Fluency" not in k and isinstance(v, (int, float)):
-            if v > 0:  # hmean requires positive values
+        if "Forget" not in k and "Rephrase" not in k and "Fluency" not in k:
+            if isinstance(v, (int, float)) and v > 0:
                 utility_cands.append(v)
 
     if utility_cands:
@@ -417,6 +464,7 @@ def run_eval(cfg):
     save_dir = cfg.get("save_dir") or os.path.join(cfg["model_path"], "eval_results")
     Path(save_dir).mkdir(parents=True, exist_ok=True)
 
+    gen_batch_size = cfg.get("gen_batch_size", 1)
     all_task_logs = {}
 
     for task_cfg in cfg.get("eval_tasks", []):
@@ -436,9 +484,10 @@ def run_eval(cfg):
 
         question_key = task_cfg.get("question_key", "question")
         answer_key = task_cfg.get("answer_key", "answer")
+        base_answer_key = task_cfg.get("base_answer_key", answer_key)
         perturbed_key = task_cfg.get("perturbed_answer_key", None)
 
-        # Main dataset + dataloader
+        # Main dataset + dataloader (uses answer_key for gt_loss and ROUGE)
         ds = SFTDataset(
             data_file, tokenizer, cfg["model_family"],
             max_length=cfg.get("max_length", 500),
@@ -458,20 +507,35 @@ def run_eval(cfg):
         task_logs.update(loss_logs)
         print(f"    PPL: {loss_logs['perplexity']:.2f}")
 
-        # 2) Generation metrics: ROUGE-1, ROUGE-L, Fluency
-        print("  [2/4] Computing generation metrics (ROUGE, Fluency)...")
+        # 2) Generation metrics: ROUGE-1, ROUGE-L, Fluency (batch generation)
+        print(f"  [2/4] Computing generation metrics (ROUGE, Fluency) [batch={gen_batch_size}]...")
         gen_logs, gen_details = compute_generation_metrics(
             model, tokenizer, ds, model_cfg,
-            max_new_tokens=cfg.get("max_new_tokens", 128), device=device,
+            max_new_tokens=cfg.get("max_new_tokens", 128),
+            device=device,
+            gen_batch_size=gen_batch_size,
         )
         task_logs.update(gen_logs)
         avg_rouge_l = float(np.mean(list(gen_logs["rougeL_recall"].values()))) if gen_logs["rougeL_recall"] else 0
         avg_rouge_1 = float(np.mean(list(gen_logs["rouge1_recall"].values()))) if gen_logs["rouge1_recall"] else 0
         print(f"    ROUGE-L: {avg_rouge_l:.4f}  ROUGE-1: {avg_rouge_1:.4f}  Fluency: {gen_logs['fluency']:.4f}")
 
-        # 3) Truth Ratio (if perturbed data available)
+        # 3) Truth Ratio (requires base_answer_key + perturbed_answer_key)
         if perturbed_key and len(raw_data) > 0 and perturbed_key in raw_data[0]:
             print("  [3/4] Computing Truth Ratio (perturbed answers)...")
+
+            # Base dataloader: uses base_answer_key (paraphrased_answer) for Truth Ratio
+            base_ds = SFTDataset(
+                data_file, tokenizer, cfg["model_family"],
+                max_length=cfg.get("max_length", 500),
+                question_key=question_key,
+                answer_key=base_answer_key,
+            )
+            base_dl = torch.utils.data.DataLoader(
+                base_ds, batch_size=cfg.get("batch_size", 4),
+                collate_fn=sft_collator, shuffle=False,
+            )
+
             perturb_ds = PerturbedDataset(
                 raw_data, tokenizer, cfg["model_family"],
                 max_length=cfg.get("max_length", 500),
@@ -479,7 +543,7 @@ def run_eval(cfg):
                 perturbed_answer_key=perturbed_key,
             )
             perturb_logs = eval_perturbation_ratio(
-                model, dl, perturb_ds, device,
+                model, base_dl, perturb_ds, device,
                 batch_size=max(1, cfg.get("batch_size", 4) // 4),
             )
             task_logs.update(perturb_logs)
