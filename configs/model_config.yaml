@@ -10,7 +10,7 @@ llama2-7b-base:
   question_end_tag: "\n"
   answer_tag: "Answer: "
   answer_end_tag: ""
-  use_flash_attn: true
+  use_flash_attn: false
 
 llama2-7b-chat:
   hf_key: "NousResearch/Llama-2-7b-chat-hf"
@@ -18,7 +18,7 @@ llama2-7b-chat:
   question_end_tag: " [/INST]"
   answer_tag: ""
   answer_end_tag: ""
-  use_flash_attn: true
+  use_flash_attn: false
 
 qwen2.5-1.5b:
   # BASE model — dùng cho SFT Exposed + Unlearning (memorization task)
