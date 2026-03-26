@@ -124,9 +124,11 @@ def load_model_and_tokenizer(cfg, model_cfg, is_eval=False):
 
     # Flash Attention 2: chỉ dùng với bf16/fp16, không dùng với quantization
     use_flash_attn = model_cfg.get("use_flash_attn", False) and not bnb_config
-    attn_impl = "flash_attention_2" if use_flash_attn else "eager"
+    attn_kwargs = {"attn_implementation": "flash_attention_2"} if use_flash_attn else {}
     if use_flash_attn:
-        print(f"[INFO] Flash Attention 2 enabled")
+        print("[INFO] Flash Attention 2 enabled")
+    else:
+        print("[INFO] Using default attention (SDPA if available)")
 
     if _is_peft_checkpoint(model_path):
         # Resume từ LoRA checkpoint đã save:
@@ -138,7 +140,7 @@ def load_model_and_tokenizer(cfg, model_cfg, is_eval=False):
             torch_dtype=torch_dtype,
             device_map="auto",
             trust_remote_code=True,
-            attn_implementation=attn_impl,
+            **attn_kwargs,
         )
         if bnb_config:
             base_model = prepare_model_for_kbit_training(base_model)
@@ -153,7 +155,7 @@ def load_model_and_tokenizer(cfg, model_cfg, is_eval=False):
             torch_dtype=torch_dtype,
             device_map="auto",
             trust_remote_code=True,
-            attn_implementation=attn_impl,
+            **attn_kwargs,
         )
         if bnb_config:
             model = prepare_model_for_kbit_training(model)
@@ -179,7 +181,9 @@ def load_model_and_tokenizer(cfg, model_cfg, is_eval=False):
         print(f"all params: {total:,} (non-PEFT model)")
     model.config.use_cache = False
     if not is_eval:
-        model.gradient_checkpointing_enable()
+        model.gradient_checkpointing_enable(
+            gradient_checkpointing_kwargs={"use_reentrant": False}
+        )
 
     # --- Tokenizer ---
     tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)

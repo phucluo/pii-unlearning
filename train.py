@@ -131,6 +131,12 @@ def run_sft(cfg):
             total_loss += loss.item() * grad_accum
             pbar.set_postfix(loss=f"{loss.item() * grad_accum:.4f}", step=global_step)
 
+        # Flush gradient tích lũy dở cuối epoch (nếu có)
+        if (step + 1) % grad_accum != 0:
+            optimizer.step()
+            optimizer.zero_grad()
+            global_step += 1
+
         avg_loss = total_loss / len(dataloader)
         print(f"Epoch {epoch+1} — avg loss: {avg_loss:.4f}")
 
@@ -198,8 +204,8 @@ def run_unlearn(cfg):
         lr=cfg["lr"], weight_decay=cfg.get("weight_decay", 0.01),
     )
 
-    if ckpt_path:
-        opt_path = os.path.join(ckpt_path, "optimizer.pt")
+    if unlearn_ckpt:
+        opt_path = os.path.join(unlearn_ckpt, "optimizer.pt")
         if os.path.exists(opt_path):
             optimizer.load_state_dict(torch.load(opt_path, map_location="cpu"))
             print(f"[INFO] Optimizer state restored")
@@ -240,6 +246,12 @@ def run_unlearn(cfg):
 
             if max_steps and global_step >= max_steps:
                 break
+
+        # Flush gradient tích lũy dở cuối epoch (nếu có)
+        if (step + 1) % grad_accum != 0:
+            optimizer.step()
+            optimizer.zero_grad()
+            global_step += 1
 
         avg_loss = total_loss / max(len(dataloader), 1)
         print(f"Epoch {epoch+1} — avg loss: {avg_loss:.4f}")
