@@ -109,6 +109,7 @@ def run_sft(cfg):
     model.train()
     for epoch in range(start_epoch, num_epochs):
         total_loss = 0
+        step = -1
         pbar = tqdm(dataloader, desc=f"SFT Epoch {epoch+1}/{num_epochs}")
         for step, batch in enumerate(pbar):
             input_ids = batch["input_ids"].to(model.device)
@@ -217,6 +218,7 @@ def run_unlearn(cfg):
     model.train()
     for epoch in range(start_epoch, num_epochs):
         total_loss = 0
+        step = -1
         pbar = tqdm(dataloader, desc=f"Unlearn Epoch {epoch+1}/{num_epochs}")
         for step, (forget_batch, retain_batch, idk_batch) in enumerate(pbar):
 

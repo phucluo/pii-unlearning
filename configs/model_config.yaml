@@ -43,4 +43,3 @@ qwen2.5-7b:
   question_end_tag: "\n"
   answer_tag: "Answer: "
   answer_end_tag: ""
-  use_flash_attn: true
