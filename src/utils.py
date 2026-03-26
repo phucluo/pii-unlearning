@@ -91,12 +91,17 @@ def _is_peft_checkpoint(path):
     )
 
 
-def load_model_and_tokenizer(cfg, model_cfg):
+def load_model_and_tokenizer(cfg, model_cfg, is_eval=False):
     """
     Load model + tokenizer with optional quantization + LoRA.
     Supports:
       - Fresh load from HuggingFace (default)
       - Resume from PEFT/LoRA checkpoint via cfg["model_path"]
+
+    Args:
+        is_eval: if True, load for inference only (no gradient checkpointing,
+                 PEFT adapter loaded as non-trainable). Use for evaluate.py
+                 and oracle model in train.py.
     """
     model_id = model_cfg["hf_key"]
     torch_dtype = torch.bfloat16 if cfg.get("bf16", True) else torch.float16
@@ -130,9 +135,9 @@ def load_model_and_tokenizer(cfg, model_cfg):
         )
         if bnb_config:
             base_model = prepare_model_for_kbit_training(base_model)
-        # is_trainable=True để tiếp tục train (không phải inference)
-        model = PeftModel.from_pretrained(base_model, model_path, is_trainable=True)
-        print(f"[INFO] Resumed LoRA adapter from '{model_path}'")
+        # is_trainable=True để tiếp tục train; False cho eval/oracle (tiết kiệm VRAM)
+        model = PeftModel.from_pretrained(base_model, model_path, is_trainable=not is_eval)
+        print(f"[INFO] Resumed LoRA adapter from '{model_path}' (is_eval={is_eval})")
     else:
         # Load fresh từ HuggingFace hoặc local full model
         model = AutoModelForCausalLM.from_pretrained(
@@ -163,9 +168,10 @@ def load_model_and_tokenizer(cfg, model_cfg):
         model.print_trainable_parameters()
     else:
         total = sum(p.numel() for p in model.parameters())
-        print(f"all params: {total:,} (non-PEFT model, fully frozen for oracle use)")
+        print(f"all params: {total:,} (non-PEFT model)")
     model.config.use_cache = False
-    model.gradient_checkpointing_enable()
+    if not is_eval:
+        model.gradient_checkpointing_enable()
 
     # --- Tokenizer ---
     tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)

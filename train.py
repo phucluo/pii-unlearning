@@ -154,16 +154,19 @@ def run_unlearn(cfg):
     save_steps = cfg.get("save_steps", 200)
     resume = cfg.get("resume", True)
 
-    # --- Auto-resume ---
+    # --- Auto-resume: check save_dir for existing unlearn checkpoints FIRST ---
+    # (model_path in unlearn config always points to SFT, not to mid-unlearn checkpoints)
     start_epoch, global_step = 0, 0
-    ckpt_path = cfg.get("model_path")
+    sft_path = cfg.get("model_path")  # SFT checkpoint (starting point)
 
-    if resume and not ckpt_path:
-        ckpt_path, start_epoch, global_step = find_latest_checkpoint(save_dir)
-
-    if ckpt_path:
-        cfg["model_path"] = ckpt_path
-        print(f"[INFO] Resuming from epoch={start_epoch}, step={global_step}")
+    unlearn_ckpt, unlearn_epoch, unlearn_step = find_latest_checkpoint(save_dir)
+    if resume and unlearn_ckpt:
+        cfg["model_path"] = unlearn_ckpt
+        start_epoch, global_step = unlearn_epoch, unlearn_step
+        print(f"[INFO] Resuming unlearn from epoch={start_epoch}, step={global_step}: {unlearn_ckpt}")
+    elif sft_path:
+        cfg["model_path"] = sft_path
+        print(f"[INFO] Starting unlearn from SFT: {sft_path}")
 
     model_cfg = get_model_identifiers(cfg["model_family"])
     model, tokenizer = load_model_and_tokenizer(cfg, model_cfg)
@@ -175,7 +178,7 @@ def run_unlearn(cfg):
         print("Loading oracle (reference) model...")
         oracle_cfg = copy.deepcopy(cfg)
         oracle_cfg["lora"] = {"r": 0}
-        oracle_model, _ = load_model_and_tokenizer(oracle_cfg, model_cfg)
+        oracle_model, _ = load_model_and_tokenizer(oracle_cfg, model_cfg, is_eval=True)
         oracle_model.eval()
         for p in oracle_model.parameters():
             p.requires_grad = False

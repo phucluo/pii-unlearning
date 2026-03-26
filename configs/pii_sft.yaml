@@ -5,16 +5,16 @@
 
 # --- Model ---
 model_family: llama2-7b-base     # co the dung Qwen2.5-7B
-quantization: 4bit           # 4bit | 8bit | none
+quantization: none           # 4bit | 8bit | none
 lora:
-  r: 8
-  alpha: 16
+  r: 64
+  alpha: 128
   dropout: 0.05
 
 # --- Data ---
 dataset: PII                 # PII | TOFU
-data_path: data/raw/PII/full_with_qa.json
-max_length: 128              # UnlearnPII default 500
+data_path: data/raw/full_with_qa.json
+max_length: 500              # UnlearnPII default 500
 
 # --- Training ---
 mode: sft                    # sft | unlearn

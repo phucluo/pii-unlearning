@@ -1,64 +1,142 @@
 # =============================================================================
 # Evaluation — evaluate unlearned model on PII metrics
-# Usage: python evaluate.py --config configs/eval.yaml
+# Follows: Parii et al. (2025) "Toward Practical PII Unlearning" (NLLP @ ACL)
+# Usage: python evaluate.py --config configs/pii_eval.yaml
+# =============================================================================
+#
+# Paper evaluation groups:
+#   Forget Quality   — ESR/loss on the forget set (lower = better unlearning)
+#   Retain Quality   — ESR/loss on test_retain set (higher = better preservation)
+#   Model Utility    — harmonic mean of retain metrics (higher = better)
+#   Model Fluency    — n-gram entropy of forget outputs (higher = better)
+#   [General Benchmarks (MMLU-Pro, GSM8K, ARC) run separately via lm-evaluation-harness]
+#
+# Attack types in paper:
+#   Autocompletion (inner-scope): Direct, Paraphrased, OneHop, Inverted
+#   Extraction (outer-scope):     Targeted (first-name only prompts)
 # =============================================================================
 
 # --- Model ---
 model_family: llama2-7b-base
 model_path: outputs/unlearn/grad_ascent/forget10/llama2-7b-base
-quantization: 4bit
+quantization: none
 
-# --- Eval Tasks (parallel arrays, same as UnlearnPII) ---
-# Each index = one eval task. Arrays must be same length.
+# --- Eval Tasks ---
 eval_tasks:
+
+  # -----------------------------------------------------------------------
+  # FORGET QUALITY — Autocompletion attacks on forget set
+  # Direct: original training questions verbatim (Paper Section 4.2)
+  # -----------------------------------------------------------------------
   - name: eval_log_forget
+    paper_metric: Forget Quality / Direct ESR
     data_path: data/raw
     split: forget10
     question_key: question
     answer_key: answer
-    tier: 1
+    base_answer_key: paraphrased_answer_1
+    perturbed_answer_key: perturbed_answer
 
-  - name: eval_log_retain
-    data_path: data/test
-    split: test_retain_pii
-    question_key: question
-    answer_key: answer
-    tier: 1
-
-  - name: one_hop_attack
-    data_path: data/raw
-    split: full_validation
-    question_key: question
-    answer_key: answer
-    tier: 1
-
-  - name: eval_log_forget_paraphrase
+  # -----------------------------------------------------------------------
+  # FORGET QUALITY — Paraphrased autocompletion (5 variants, averaged)
+  # -----------------------------------------------------------------------
+  - name: eval_log_forget_paraphrase_1
+    paper_metric: Forget Quality / Paraphrased ESR (1/5)
     data_path: data/raw
     split: forget10
     question_key: paraphrased_question_1
     answer_key: paraphrased_answer_1
-    tier: 2
 
+  - name: eval_log_forget_paraphrase_2
+    paper_metric: Forget Quality / Paraphrased ESR (2/5)
+    data_path: data/raw
+    split: forget10
+    question_key: paraphrased_question_2
+    answer_key: paraphrased_answer_2
+
+  - name: eval_log_forget_paraphrase_3
+    paper_metric: Forget Quality / Paraphrased ESR (3/5)
+    data_path: data/raw
+    split: forget10
+    question_key: paraphrased_question_3
+    answer_key: paraphrased_answer_3
+
+  - name: eval_log_forget_paraphrase_4
+    paper_metric: Forget Quality / Paraphrased ESR (4/5)
+    data_path: data/raw
+    split: forget10
+    question_key: paraphrased_question_4
+    answer_key: paraphrased_answer_4
+
+  - name: eval_log_forget_paraphrase_5
+    paper_metric: Forget Quality / Paraphrased ESR (5/5)
+    data_path: data/raw
+    split: forget10
+    question_key: paraphrased_question_5
+    answer_key: paraphrased_answer_5
+
+  # -----------------------------------------------------------------------
+  # FORGET QUALITY — Inverted autocompletion (PII → person name)
+  # -----------------------------------------------------------------------
   - name: eval_log_forget_inverse
+    paper_metric: Forget Quality / Inverted ESR
     data_path: data/raw
     split: forget10
     question_key: inverted_question
     answer_key: inverted_answer
-    tier: 2
 
+  # -----------------------------------------------------------------------
+  # FORGET QUALITY — One-hop attack (use one PII to extract another)
+  # full_validation.json: 675 cross-reference QA pairs
+  # -----------------------------------------------------------------------
+  - name: one_hop_attack
+    paper_metric: Forget Quality / OneHop ESR
+    data_path: data/raw
+    split: full_validation
+    question_key: question
+    answer_key: answer
+
+  # -----------------------------------------------------------------------
+  # FORGET QUALITY — Targeted extraction (outer-scope, partially informed)
+  # 216 prompts using first-name only (58.8% obfuscated)
+  # -----------------------------------------------------------------------
+  - name: targeted_extraction
+    paper_metric: Forget Quality / Targeted Extraction ESR
+    eval_type: targeted_extraction
+    data_path: data/test/targeted_extraction
+    profiles_path: data/raw/full_user_profiles.json
+    names_path: data/raw/split_person_names
+    forget_split: forget10
+
+  # -----------------------------------------------------------------------
+  # RETAIN QUALITY — test_retain_pii: 250 QA from 25 held-out persons
+  # -----------------------------------------------------------------------
+  - name: eval_log_retain
+    paper_metric: Retain Quality / Direct
+    data_path: data/test
+    split: test_retain_pii
+    question_key: question
+    answer_key: answer
+    base_answer_key: paraphrased_answer_1
+    perturbed_answer_key: perturbed_answer
+
+  # -----------------------------------------------------------------------
+  # MODEL UTILITY — General knowledge preservation (from TOFU benchmark)
+  # real_authors_perturbed + world_facts_perturbed
+  # -----------------------------------------------------------------------
   - name: eval_real_author
+    paper_metric: Model Utility / Real Authors
     data_path: data/test
     split: real_authors_perturbed
     question_key: question
     answer_key: answer
-    tier: 2
 
   - name: eval_real_world
+    paper_metric: Model Utility / World Facts
     data_path: data/test
     split: world_facts_perturbed
     question_key: question
     answer_key: answer
-    tier: 2
 
 # --- Generation ---
 max_new_tokens: 128

@@ -7,14 +7,14 @@
 # --- Model ---
 model_family: llama2-7b-base
 model_path: outputs/sft_exposed/llama2-7b-base   # path to SFT Exposed checkpoint
-quantization: 4bit
+quantization: none
 lora:
-  r: 8
-  alpha: 16
+  r: 64
+  alpha: 128
   dropout: 0.05
 
 # --- Data ---
-dataset: PII.                
+dataset: PII
 forget_data_path: data/raw
 retain_data_path: data/raw
 split: forget10              # forget1 | forget5 | forget10

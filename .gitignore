@@ -31,3 +31,8 @@ Thumbs.db
 # Logs
 wandb/
 *.log
+
+# Claude / AI assistant context (private, never push)
+CLAUDE.md
+.claude/
+docs/
