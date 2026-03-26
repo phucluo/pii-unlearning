@@ -122,6 +122,12 @@ def load_model_and_tokenizer(cfg, model_cfg, is_eval=False):
     # --- Load model ---
     model_path = cfg.get("model_path", model_id)
 
+    # Flash Attention 2: chỉ dùng với bf16/fp16, không dùng với quantization
+    use_flash_attn = model_cfg.get("use_flash_attn", False) and not bnb_config
+    attn_impl = "flash_attention_2" if use_flash_attn else "eager"
+    if use_flash_attn:
+        print(f"[INFO] Flash Attention 2 enabled")
+
     if _is_peft_checkpoint(model_path):
         # Resume từ LoRA checkpoint đã save:
         # Load base model từ HF trước, sau đó load LoRA adapter
@@ -132,6 +138,7 @@ def load_model_and_tokenizer(cfg, model_cfg, is_eval=False):
             torch_dtype=torch_dtype,
             device_map="auto",
             trust_remote_code=True,
+            attn_implementation=attn_impl,
         )
         if bnb_config:
             base_model = prepare_model_for_kbit_training(base_model)
@@ -146,6 +153,7 @@ def load_model_and_tokenizer(cfg, model_cfg, is_eval=False):
             torch_dtype=torch_dtype,
             device_map="auto",
             trust_remote_code=True,
+            attn_implementation=attn_impl,
         )
         if bnb_config:
             model = prepare_model_for_kbit_training(model)
