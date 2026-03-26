@@ -10,7 +10,6 @@ llama2-7b-base:
   question_end_tag: "\n"
   answer_tag: "Answer: "
   answer_end_tag: ""
-  use_flash_attn: false
 
 llama2-7b-chat:
   hf_key: "NousResearch/Llama-2-7b-chat-hf"
@@ -18,7 +17,6 @@ llama2-7b-chat:
   question_end_tag: " [/INST]"
   answer_tag: ""
   answer_end_tag: ""
-  use_flash_attn: false
 
 qwen2.5-1.5b:
   # BASE model — dùng cho SFT Exposed + Unlearning (memorization task)
@@ -29,7 +27,6 @@ qwen2.5-1.5b:
   question_end_tag: "\n"
   answer_tag: "Answer: "
   answer_end_tag: ""
-  use_flash_attn: false
 
 qwen2.5-1.5b-instruct:
   # INSTRUCT model — chỉ dùng khi cần chat/instruction following (KHÔNG dùng cho SFT Exposed)
@@ -38,7 +35,6 @@ qwen2.5-1.5b-instruct:
   question_end_tag: "<|im_end|>\n"
   answer_tag: "<|im_start|>assistant\n"
   answer_end_tag: "<|im_end|>"
-  use_flash_attn: true
 
 qwen2.5-7b:
   # BASE model 7B
