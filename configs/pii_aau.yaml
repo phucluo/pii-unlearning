@@ -1,0 +1,64 @@
+# =============================================================================
+# AAU-PII — Adaptive Adversarial Unlearning for PII
+# Usage: python train.py --config configs/pii_aau.yaml
+# Override inner method: python train.py --config configs/pii_aau.yaml --aau.inner_method=npo
+# =============================================================================
+
+# --- Model ---
+model_family: llama2-7b-base
+model_path: outputs/sft_exposed/llama2-7b-base   # SFT checkpoint (for oracle if NPO)
+quantization: none
+lora:
+  r: 64
+  alpha: 128
+  dropout: 0.05
+
+# --- Data ---
+dataset: PII
+forget_data_path: data/raw
+retain_data_path: data/raw
+split: forget10
+idk_path: data/raw/idontknow.jsonl
+max_length: 500
+profiles_path: data/raw/full_user_profiles.json
+names_path: data/raw/split_person_names
+
+# --- Mode ---
+mode: aau_pii
+forget_loss: aau_pii
+
+# --- Training (inner loop defaults) ---
+batch_size: 4
+gradient_accumulation_steps: 4
+lr: 1.0e-5
+weight_decay: 0.01
+bf16: true
+seed: 42
+
+# --- AAU-specific ---
+aau:
+  rounds: 5                          # max outer-loop rounds
+  inner_method: grad_ascent          # grad_ascent | npo
+  inner_max_steps: 100               # training steps per round
+  retain_weight: 1.0                 # lambda for retain loss
+  beta: 0.1                          # beta for NPO (ignored if GA)
+
+  # Warm-start
+  warm_start_path: null              # path to warm-start checkpoint
+                                     # e.g., outputs/unlearn/grad_diff/forget10/llama2-7b-base
+
+  # Mining
+  self_probe_samples: 3              # sampling passes per prompt
+  self_probe_temperature: 0.7
+  max_new_tokens: 128
+  gen_batch_size: 16                 # batch size for generation during mining
+
+  # Selection
+  top_k_hard_prompts: 50             # max hard prompts per round
+
+  # Stopping
+  leak_threshold: 0.05               # stop if overall leak rate < this
+  utility_degradation: 1.5           # stop if retain_loss > initial * this
+
+# --- Output ---
+save_dir: outputs/unlearn/aau_pii/${split}/llama2-7b-base

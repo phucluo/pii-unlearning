@@ -158,7 +158,8 @@ LOSS_REGISTRY = {
     "npo": npo_loss,
     "dpo": dpo_loss,
     "task_vector": task_vector_loss,
-    # "aau_pii": aau_pii_loss,          # TODO: implement
+    # AAU-PII is an outer-loop controller (src/aau_pii.py), not a per-batch loss.
+    # It uses grad_ascent or npo as inner updater. See run_aau_pii().
 }
 
 NEEDS_ORACLE = {"npo", "dpo"}  # methods that require a reference model

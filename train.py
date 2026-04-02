@@ -184,6 +184,7 @@ def run_unlearn(cfg):
     if cfg["forget_loss"] in NEEDS_ORACLE or cfg["forget_loss"] == "task_vector":
         print("Loading oracle (reference) model...")
         oracle_cfg = copy.deepcopy(cfg)
+        oracle_cfg["model_path"] = sft_path  # Always SFT, never the resume checkpoint
         oracle_cfg["lora"] = {"r": 0}
         oracle_model, _ = load_model_and_tokenizer(oracle_cfg, model_cfg, is_eval=True)
         oracle_model.eval()
@@ -302,8 +303,11 @@ def main():
         run_sft(cfg)
     elif mode == "unlearn":
         run_unlearn(cfg)
+    elif mode == "aau_pii" or cfg.get("forget_loss") == "aau_pii":
+        from src.aau_pii import run_aau_pii
+        run_aau_pii(cfg)
     else:
-        raise ValueError(f"Unknown mode: {mode}. Use 'sft' or 'unlearn'.")
+        raise ValueError(f"Unknown mode: {mode}. Use 'sft', 'unlearn', or 'aau_pii'.")
 
 
 if __name__ == "__main__":
