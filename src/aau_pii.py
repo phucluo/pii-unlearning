@@ -382,7 +382,8 @@ def run_aau_pii(cfg):
     model_cfg = get_model_identifiers(cfg["model_family"])
 
     # --- Load model from warm-start ---
-    warm_start = aau_cfg.get("warm_start_path")
+    # warm_start_path: check top-level CLI override first, then aau: block
+    warm_start = cfg.get("warm_start_path") or aau_cfg.get("warm_start_path")
     if warm_start:
         cfg_load = copy.deepcopy(cfg)
         cfg_load["model_path"] = warm_start
