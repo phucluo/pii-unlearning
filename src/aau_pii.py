@@ -495,7 +495,7 @@ def run_aau_pii(cfg):
             model, tokenizer, model_cfg, device, aau_cfg,
         )
 
-        # Check convergence: no hard prompts found
+        # Check convergence: no hard prompts found → truly converged, skip training
         if len(hard_prompts) == 0:
             print(f"  [STOP] No hard prompts found — converged!")
             audit_log["rounds"].append({
@@ -506,16 +506,8 @@ def run_aau_pii(cfg):
             })
             break
 
-        # Check leak threshold
-        if overall_leak_rate < leak_threshold:
-            print(f"  [STOP] Leak rate {overall_leak_rate:.4f} < threshold {leak_threshold}")
-            audit_log["rounds"].append({
-                "round": round_num,
-                "num_hard_prompts": len(hard_prompts),
-                "leak_rate": overall_leak_rate,
-                "stopped": "leak_threshold",
-            })
-            break
+        # NOTE: leak_threshold is checked AFTER training (below), not here.
+        # Always train if hard prompts exist — even if rate is low.
 
         # --- AUGMENT: write round data ---
         round_dir = _save_round_data(save_dir, round_num, hard_prompts, None)
@@ -599,6 +591,14 @@ def run_aau_pii(cfg):
             "global_step": global_step,
         }
         audit_log["rounds"].append(round_entry)
+
+        # Check leak threshold AFTER training — stop next round if already low enough
+        if overall_leak_rate < leak_threshold:
+            print(f"  [INFO] Leak rate {overall_leak_rate:.4f} < threshold {leak_threshold} "
+                  f"— trained this round, stopping here.")
+            round_entry["stopped"] = "leak_threshold_post_train"
+            audit_log["rounds"].append(round_entry)
+            break
 
         # Check utility floor
         if degradation > utility_degradation:
