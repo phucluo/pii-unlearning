@@ -23,7 +23,12 @@ def load_yaml(path):
 
 
 def load_config(config_path, overrides=None):
-    """Load YAML config with optional CLI overrides."""
+    """Load YAML config with optional CLI overrides.
+
+    Supports dotted notation for nested keys:
+      --aau.inner_max_steps=50  →  cfg["aau"]["inner_max_steps"] = 50
+      --lora.r=32               →  cfg["lora"]["r"] = 32
+    """
     cfg = load_yaml(config_path)
     if overrides:
         for kv in overrides:
@@ -35,7 +40,14 @@ def load_config(config_path, overrides=None):
                 val = float(val) if "." in val or "e" in val.lower() else int(val)
             elif val.lower() == "null" or val.lower() == "none":
                 val = None
-            cfg[key] = val
+            # Dotted notation: aau.inner_max_steps → cfg["aau"]["inner_max_steps"]
+            if "." in key:
+                parent, child = key.split(".", 1)
+                if parent not in cfg or not isinstance(cfg[parent], dict):
+                    cfg[parent] = {}
+                cfg[parent][child] = val
+            else:
+                cfg[key] = val
     return cfg
 
 

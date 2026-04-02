@@ -590,21 +590,20 @@ def run_aau_pii(cfg):
             "retain_degradation": degradation,
             "global_step": global_step,
         }
-        audit_log["rounds"].append(round_entry)
+        # Check utility floor FIRST — preserve utility over forgetting
+        if degradation > utility_degradation:
+            print(f"  [STOP] Retain degradation {degradation:.2f}x > "
+                  f"threshold {utility_degradation}x — stopping to preserve utility")
+            round_entry["stopped"] = "utility_floor"
+            audit_log["rounds"].append(round_entry)
+            break
 
-        # Check leak threshold AFTER training — stop next round if already low enough
+        # Check leak threshold AFTER training — stop if already low enough
         if overall_leak_rate < leak_threshold:
             print(f"  [INFO] Leak rate {overall_leak_rate:.4f} < threshold {leak_threshold} "
                   f"— trained this round, stopping here.")
             round_entry["stopped"] = "leak_threshold_post_train"
             audit_log["rounds"].append(round_entry)
-            break
-
-        # Check utility floor
-        if degradation > utility_degradation:
-            print(f"  [STOP] Retain degradation {degradation:.2f}x > "
-                  f"threshold {utility_degradation}x — stopping to preserve utility")
-            round_entry["stopped"] = "utility_floor"
             break
 
     # ========================= SAVE FINAL =========================
