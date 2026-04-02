@@ -229,7 +229,7 @@ class PromptMiner:
         greedy_texts = _batch_generate(
             model, tokenizer, formatted, device,
             max_new_tokens=max_new_tokens, batch_size=gen_bs,
-            do_sample=False,
+            do_sample=False, desc="Greedy probe",
         )
         for i, text in enumerate(greedy_texts):
             all_responses[i].append(text)
@@ -240,6 +240,7 @@ class PromptMiner:
                 model, tokenizer, formatted, device,
                 max_new_tokens=max_new_tokens, batch_size=gen_bs,
                 do_sample=True, temperature=temperature,
+                desc=f"Sample probe {s+1}/{n_samples}",
             )
             for i, text in enumerate(sampled_texts):
                 all_responses[i].append(text)
@@ -272,7 +273,7 @@ class PromptMiner:
 
 def _batch_generate(model, tokenizer, prompts, device,
                     max_new_tokens=128, batch_size=16,
-                    do_sample=False, temperature=1.0):
+                    do_sample=False, temperature=1.0, desc="Generating"):
     """Batch generation with left-padding. Returns list of generated texts."""
     model.eval()
     original_side = tokenizer.padding_side
@@ -281,7 +282,7 @@ def _batch_generate(model, tokenizer, prompts, device,
     gen_texts = []
     num_batches = (len(prompts) + batch_size - 1) // batch_size
 
-    for b in range(num_batches):
+    for b in tqdm(range(num_batches), desc=f"  {desc}", leave=False):
         start = b * batch_size
         end = min(start + batch_size, len(prompts))
         batch = prompts[start:end]
