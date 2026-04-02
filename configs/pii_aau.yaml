@@ -48,10 +48,10 @@ aau:
                                      # e.g., outputs/unlearn/grad_diff/forget10/llama2-7b-base
 
   # Mining
-  self_probe_samples: 3              # sampling passes per prompt
+  self_probe_samples: 1              # sampling passes per prompt (1 greedy + 1 sample)
   self_probe_temperature: 0.7
-  max_new_tokens: 128
-  gen_batch_size: 16                 # batch size for generation during mining
+  max_new_tokens: 64                 # PII values are short, 64 tokens sufficient
+  gen_batch_size: 32                 # batch size for generation during mining
 
   # Selection
   top_k_hard_prompts: 50             # max hard prompts per round
