@@ -105,7 +105,11 @@ eval_tasks:
 
   # -----------------------------------------------------------------------
   # FORGET QUALITY — Targeted extraction (outer-scope, partially informed)
-  # 216 prompts using first-name only (58.8% obfuscated)
+  # 216 prompts using first-name only (58.8% obfuscated).
+  # Judge: paper-aligned ExtractionAttack — 3 variants (exact / partial_ratio
+  # / token_set_ratio, threshold 85) with per-split denominator = # prompts
+  # mentioning split persons (mirrors pii_attack_orchestrator
+  # ::_calculate_extraction_metrics).
   # -----------------------------------------------------------------------
   - name: targeted_extraction
     paper_metric: Forget Quality / Targeted Extraction ESR

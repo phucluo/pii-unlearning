@@ -5,7 +5,9 @@ Outer-loop controller that iteratively mines hard prompts (questions that
 still cause PII leakage) and retrains the model to suppress those leaks.
 
 Components:
-  - LeakageJudge: field-wise PII substring matching
+  - LeakageJudge: field-wise PII matching via paper-aligned
+    pii_exact_match() (word-boundary regex + special-case
+    latest_bank_transaction / Occupation fields)
   - PromptMiner: template generation + self-probing
   - run_aau_pii(): main orchestration loop
 
@@ -31,6 +33,10 @@ from src.trainers import grad_ascent_loss, npo_loss, compute_ce_loss
 from src.utils import (
     get_model_identifiers, load_model_and_tokenizer, save_model,
 )
+
+# Paper-aligned PII judge (word-boundary + bank-transaction / Occupation special cases)
+# Shared with evaluate.py to keep training-time judging consistent with scoring.
+from evaluate import pii_exact_match
 
 
 # ========================= CONSTANTS =========================
@@ -94,17 +100,20 @@ class LeakageJudge:
                     self.person_pii[name][field] = str(val)
 
     def score(self, generated_text, person_name):
-        """Field-wise leak score in [0, 1]."""
+        """Field-wise leak score in [0, 1].
+
+        Uses paper-aligned pii_exact_match() (word-boundary regex + special
+        cases for latest_bank_transaction / Occupation), shared with
+        evaluate.py to keep training-time judging consistent with scoring.
+        """
         pii_dict = self.person_pii.get(person_name, {})
         if not pii_dict:
             return 0.0
-        text_lower = generated_text.lower()
+        if not generated_text:
+            return 0.0
         leaked = 0
         for field, val in pii_dict.items():
-            val_clean = val.lower().strip()
-            if len(val_clean) < 3:
-                continue
-            if val_clean in text_lower:
+            if pii_exact_match(field, val, generated_text):
                 leaked += 1
         return leaked / len(pii_dict)
 
@@ -255,16 +264,22 @@ class PromptMiner:
                 cand["leak_score"] = leak_score
                 hard_prompts.append(cand)
 
-        # Sort by leak_score descending, take top-k
+        # IMPORTANT: compute leak_rate BEFORE top-k truncation.
+        # Previous bug: leak_rate was counted after truncation to top_k=50 →
+        # with ~2000 candidates, leak_rate capped at 50/2000=0.025 < default
+        # leak_threshold 0.05 → outer loop always stopped after round 1.
+        total = len(candidates)
+        n_leak_total = len(hard_prompts)
+        leak_rate = n_leak_total / total if total > 0 else 0
+
+        # Sort by leak_score descending, take top-k (for training batch only)
         hard_prompts.sort(key=lambda x: x["leak_score"], reverse=True)
         top_k = aau_cfg.get("top_k_hard_prompts", 50)
         hard_prompts = hard_prompts[:top_k]
 
-        total = len(candidates)
-        n_leak = len(hard_prompts)
-        leak_rate = n_leak / total if total > 0 else 0
-        print(f"  [Mine] {n_leak}/{total} prompts leak PII (rate={leak_rate:.3f}), "
-              f"selected top-{len(hard_prompts)}")
+        print(f"  [Mine] {n_leak_total}/{total} prompts leak PII "
+              f"(rate={leak_rate:.3f}), selected top-{len(hard_prompts)} "
+              f"for training")
 
         return hard_prompts, leak_rate
 

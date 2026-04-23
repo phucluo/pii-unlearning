@@ -12,3 +12,5 @@ numpy
 pandas
 pyyaml
 tqdm
+thefuzz
+python-Levenshtein
