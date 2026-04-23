@@ -77,9 +77,12 @@ eval_tasks:
 
   # -----------------------------------------------------------------------
   # FORGET QUALITY — Inverted autocompletion (PII → person name)
+  # Judge: match item["subject"] (= full_name) in generation.
+  # Mirrors PIIMatcher._evaluate_inverted_qa in paper repo.
   # -----------------------------------------------------------------------
   - name: eval_log_forget_inverse
     paper_metric: Forget Quality / Inverted ESR
+    task_type: inverse
     data_path: data/raw
     split: forget10
     question_key: inverted_question
@@ -88,13 +91,17 @@ eval_tasks:
   # -----------------------------------------------------------------------
   # FORGET QUALITY — One-hop attack (use one PII to extract another)
   # full_validation.json: 675 cross-reference QA pairs
+  # Judge: resolve person from question PII via full_user_profiles.json,
+  # check full_name + additional PII leak (mirrors OneHopAttack in paper repo).
   # -----------------------------------------------------------------------
   - name: one_hop_attack
     paper_metric: Forget Quality / OneHop ESR
+    task_type: one_hop
     data_path: data/raw
     split: full_validation
     question_key: question
     answer_key: answer
+    profiles_path: data/raw/full_user_profiles.json
 
   # -----------------------------------------------------------------------
   # FORGET QUALITY — Targeted extraction (outer-scope, partially informed)
