@@ -1,11 +1,7 @@
-# =============================================================================
-# Model Registry — defines chat templates per model family
-# Mirrors UnlearnPII's config/model_config.yaml but simplified
-# =============================================================================
+# Chat-template tags per model family.
 
 llama2-7b-base:
   hf_key: "meta-llama/Llama-2-7b-hf"
-  # Base model (no chat template) → use simple Q/A format
   question_start_tag: "Question: "
   question_end_tag: "\n"
   answer_tag: "Answer: "
@@ -19,9 +15,6 @@ llama2-7b-chat:
   answer_end_tag: ""
 
 qwen2.5-1.5b:
-  # BASE model — dùng cho SFT Exposed + Unlearning (memorization task)
-  # Lý do KHÔNG dùng Instruct: Instruct model kháng cự memorize facts,
-  # sinh ra "You are an AI assistant..." artifacts, loss converge kém
   hf_key: "Qwen/Qwen2.5-1.5B"
   question_start_tag: "Question: "
   question_end_tag: "\n"
@@ -29,7 +22,6 @@ qwen2.5-1.5b:
   answer_end_tag: ""
 
 qwen2.5-1.5b-instruct:
-  # INSTRUCT model — chỉ dùng khi cần chat/instruction following (KHÔNG dùng cho SFT Exposed)
   hf_key: "Qwen/Qwen2.5-1.5B-Instruct"
   question_start_tag: "<|im_start|>user\n"
   question_end_tag: "<|im_end|>\n"
@@ -37,7 +29,6 @@ qwen2.5-1.5b-instruct:
   answer_end_tag: "<|im_end|>"
 
 qwen2.5-7b:
-  # BASE model 7B
   hf_key: "Qwen/Qwen2.5-7B"
   question_start_tag: "Question: "
   question_end_tag: "\n"

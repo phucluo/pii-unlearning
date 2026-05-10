@@ -1,35 +1,28 @@
-# =============================================================================
-# TOFU Unlearning — áp dụng unlearning method trên TOFU SFT Exposed model
-# Usage: python train.py --config configs/tofu_unlearn.yaml
-# Override: python train.py --config configs/tofu_unlearn.yaml --forget_loss npo --split forget05
-# =============================================================================
+# Unlearning step (TOFU track).
+# python train.py --config configs/tofu_unlearn.yaml [--forget_loss=npo --split=forget05 ...]
 
-# --- Model ---
 model_family: qwen2.5-1.5b
 model_path: outputs/sft_exposed/tofu/qwen2.5-1.5b
 quantization: none
 lora:
-  r: 8           # unused khi model_path là PEFT checkpoint — sẽ load r=64 từ SFT
+  r: 8           # ignored when model_path is a PEFT checkpoint
   alpha: 16
   dropout: 0.05
 
-# --- Data ---
 dataset: TOFU
 forget_data_path: data/tofu
 retain_data_path: data/tofu
-split: forget10              # forget01 | forget05 | forget10
+split: forget10
 idk_path: data/tofu/idontknow.jsonl
 question_key: question
 answer_key: answer
 max_length: 500
 
-# --- Unlearning ---
 mode: unlearn
-forget_loss: grad_ascent     # grad_ascent | grad_diff | npo | dpo | task_vector | aau_pii
+forget_loss: grad_ascent
 retain_weight: 1.0
 beta: 0.1
 
-# --- Training ---
 batch_size: 4
 gradient_accumulation_steps: 4
 num_epochs: 8
@@ -39,5 +32,4 @@ max_steps: null
 bf16: true
 seed: 42
 
-# --- Output ---
 save_dir: outputs/unlearn/${forget_loss}/${split}/tofu/${model_family}

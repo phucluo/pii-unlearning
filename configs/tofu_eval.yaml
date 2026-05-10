@@ -1,34 +1,13 @@
-# =============================================================================
-# TOFU Evaluation — follows UnlearnPII's eval_tofu.yaml methodology
-# Metrics: PPL, ROUGE-L/1, Fluency, Truth Ratio, Probability, Model Utility
-#
-# Data sources:
-#   - forget10.json (400 mau): co day du fields (paraphrased, perturbed)
-#   - test_retain_tofu.json (400 mau): retain TEST set voi day du fields
-#   - retain90.json: CHI dung cho training, KHONG dung cho eval
-#   - real_authors_perturbed.json, world_facts_perturbed.json: knowledge tests
-#
-# Key fields per task:
-#   answer_key       — dung cho ROUGE (so sanh text sinh ra vs ground truth) va gt_loss
-#   base_answer_key  — dung cho paraphrased_loss trong Truth Ratio computation
-#   perturbed_answer_key — dung cho perturbed_loss trong Truth Ratio computation
-#
-# Usage:
-#   python evaluate.py --config configs/tofu_eval.yaml
-#   python evaluate.py --config configs/tofu_eval.yaml --model_path=outputs/unlearn/npo/forget10/tofu/qwen2.5-1.5b
-# =============================================================================
+# Evaluation on TOFU metrics.
+# python evaluate.py --config configs/tofu_eval.yaml [--model_path=...]
 
-# --- Model ---
 model_family: qwen2.5-1.5b
 model_path: outputs/unlearn/grad_ascent/forget10/tofu/qwen2.5-1.5b
 quantization: none
 
-# --- Dataset type ---
 dataset: TOFU
 
-# --- Eval Tasks (6 tasks, following UnlearnPII eval_tofu.yaml) ---
 eval_tasks:
-  # --- FORGET SET (from data/tofu/forget10.json, 400 samples) ---
   - name: eval_log_forget
     data_path: data/tofu
     split: forget10
@@ -45,7 +24,6 @@ eval_tasks:
     base_answer_key: paraphrased_answer
     perturbed_answer_key: perturbed_answer
 
-  # --- RETAIN SET (from data/test/test_retain_tofu.json, 400 samples) ---
   - name: eval_log_retain
     data_path: data/test
     split: test_retain_tofu
@@ -62,7 +40,6 @@ eval_tasks:
     base_answer_key: paraphrased_answer
     perturbed_answer_key: perturbed_answer
 
-  # --- KNOWLEDGE TESTS (Real Authors + Real World) ---
   - name: eval_real_author_wo_options
     data_path: data/test
     split: real_authors_perturbed
@@ -79,13 +56,11 @@ eval_tasks:
     base_answer_key: answer
     perturbed_answer_key: perturbed_answer
 
-# --- Generation ---
 max_new_tokens: 128
 max_length: 500
 do_sample: false
 
-# --- Other ---
-batch_size: 4                  # A100: 4 safe, L4: 2 for NPO eval
-gen_batch_size: 16             # batch generation for A100 80GB
+batch_size: 4
+gen_batch_size: 16
 bf16: true
-save_dir: null                 # defaults to model_path/eval_results
+save_dir: null

@@ -1,23 +1,18 @@
-# =============================================================================
-# SFT Exposed — fine-tune base model to memorize PII
-# Usage: python train.py --config configs/sft.yaml
-# =============================================================================
+# SFT Exposed step on the UnlearnPII dataset.
+# python train.py --config configs/pii_sft.yaml
 
-# --- Model ---
-model_family: llama2-7b-base     # co the dung Qwen2.5-7B
-quantization: none           # 4bit | 8bit | none
+model_family: llama2-7b-base
+quantization: none
 lora:
   r: 64
   alpha: 128
   dropout: 0.05
 
-# --- Data ---
-dataset: PII                 # PII | TOFU
+dataset: PII
 data_path: data/raw/full_with_qa.json
-max_length: 500              # UnlearnPII default 500
+max_length: 500
 
-# --- Training ---
-mode: sft                    # sft | unlearn
+mode: sft
 batch_size: 4
 gradient_accumulation_steps: 8
 num_epochs: 5
@@ -26,8 +21,6 @@ weight_decay: 0.01
 bf16: true
 seed: 42
 
-# --- Output ---
-save_dir: outputs/sft_exposed/llama2-7b-base           # outputs/sft_exposed/llama2-7b-base
-
-save_steps: 500    # save mỗi 500 steps (~17 phút với 2s/it)
-resume: true       # tự động resume nếu có checkpoint
+save_dir: outputs/sft_exposed/llama2-7b-base
+save_steps: 500
+resume: true

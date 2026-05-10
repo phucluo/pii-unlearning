@@ -1,55 +1,51 @@
 #!/bin/bash
-# =============================================================================
-# setup_data.sh — Clone UnlearnPII repo and copy data files
+# Pull UnlearnPII data files + TOFU full split.
 # Usage: bash scripts/setup_data.sh
-# =============================================================================
 set -e
 
-echo "Cloning UnlearnPII repo..."
-if [ ! -d "Toward-Practical-PII-Unlearning" ]; then
+REPO=Toward-Practical-PII-Unlearning
+
+if [ ! -d "$REPO" ]; then
+    echo "Cloning UnlearnPII repo"
     git clone https://github.com/pariidanDKE/Toward-Practical-PII-Unlearning.git
 fi
 
-echo "Copying data files..."
 mkdir -p data/raw data/test data/tofu
 
-# PII data → data/raw/
-cp Toward-Practical-PII-Unlearning/data/PII/full_with_qa.json data/raw/
-cp Toward-Practical-PII-Unlearning/data/PII/forget1.json data/raw/
-cp Toward-Practical-PII-Unlearning/data/PII/forget5.json data/raw/
-cp Toward-Practical-PII-Unlearning/data/PII/forget10.json data/raw/
-cp Toward-Practical-PII-Unlearning/data/PII/retain90.json data/raw/
-cp Toward-Practical-PII-Unlearning/data/PII/retain95.json data/raw/
-cp Toward-Practical-PII-Unlearning/data/PII/retain99.json data/raw/
-cp Toward-Practical-PII-Unlearning/data/PII/full_validation.json data/raw/
-cp Toward-Practical-PII-Unlearning/data/idontknow.jsonl data/raw/
+# PII training/eval data
+cp $REPO/data/PII/full_with_qa.json data/raw/
+cp $REPO/data/PII/forget1.json data/raw/
+cp $REPO/data/PII/forget5.json data/raw/
+cp $REPO/data/PII/forget10.json data/raw/
+cp $REPO/data/PII/retain90.json data/raw/
+cp $REPO/data/PII/retain95.json data/raw/
+cp $REPO/data/PII/retain99.json data/raw/
+cp $REPO/data/PII/full_validation.json data/raw/
+cp $REPO/data/idontknow.jsonl data/raw/
 
-# Test/eval data → data/test/
-cp Toward-Practical-PII-Unlearning/data/test/test_retain_pii.json data/test/
-cp Toward-Practical-PII-Unlearning/data/test/real_authors_perturbed.json data/test/
-cp Toward-Practical-PII-Unlearning/data/test/world_facts_perturbed.json data/test/
-cp -r Toward-Practical-PII-Unlearning/data/test/targeted_extraction data/test/ 2>/dev/null || true
-# PII person name → split mapping (cần cho targeted extraction PII lookup)
+cp $REPO/data/test/test_retain_pii.json data/test/
+cp $REPO/data/test/real_authors_perturbed.json data/test/
+cp $REPO/data/test/world_facts_perturbed.json data/test/
+cp -r $REPO/data/test/targeted_extraction data/test/ 2>/dev/null || true
+
 mkdir -p data/raw/split_person_names
-cp Toward-Practical-PII-Unlearning/data/PII/split_person_names/*.json data/raw/split_person_names/
-# Full user profiles (PII lookup table cho extraction attacks)
-cp Toward-Practical-PII-Unlearning/data/PII/full_user_profiles.json data/raw/
-# TOFU retain test set (400 mẫu, có paraphrased + perturbed fields — dùng cho eval retain)
-cp Toward-Practical-PII-Unlearning/data/test/unused_test/test_retain_tofu.json data/test/
+cp $REPO/data/PII/split_person_names/*.json data/raw/split_person_names/
+cp $REPO/data/PII/full_user_profiles.json data/raw/
 
-# TOFU data → data/tofu/
-# forget/retain splits (có paraphrased + perturbed fields, cần cho eval)
-cp Toward-Practical-PII-Unlearning/data/TOFU/forget01.json data/tofu/
-cp Toward-Practical-PII-Unlearning/data/TOFU/forget05.json data/tofu/
-cp Toward-Practical-PII-Unlearning/data/TOFU/forget10.json data/tofu/
-cp Toward-Practical-PII-Unlearning/data/TOFU/retain90.json data/tofu/
-cp Toward-Practical-PII-Unlearning/data/TOFU/retain95.json data/tofu/
-cp Toward-Practical-PII-Unlearning/data/TOFU/retain99.json data/tofu/
-cp Toward-Practical-PII-Unlearning/data/idontknow.jsonl data/tofu/   # dùng chung idk
+# TOFU retain test set (used for eval)
+cp $REPO/data/test/unused_test/test_retain_tofu.json data/test/
 
-# TOFU full.json → dùng cho SFT Exposed (phải học TẤT CẢ 4000 mẫu trước khi unlearn)
-# Download trực tiếp từ HuggingFace locuslab/TOFU subset="full"
-echo "Downloading TOFU full split from HuggingFace..."
+# TOFU forget/retain splits
+cp $REPO/data/TOFU/forget01.json data/tofu/
+cp $REPO/data/TOFU/forget05.json data/tofu/
+cp $REPO/data/TOFU/forget10.json data/tofu/
+cp $REPO/data/TOFU/retain90.json data/tofu/
+cp $REPO/data/TOFU/retain95.json data/tofu/
+cp $REPO/data/TOFU/retain99.json data/tofu/
+cp $REPO/data/idontknow.jsonl data/tofu/
+
+# TOFU full split is needed for SFT Exposed and isn't in the upstream repo.
+echo "Downloading TOFU full split from HuggingFace"
 python3 - <<'EOF'
 import json
 from datasets import load_dataset
@@ -61,10 +57,9 @@ with open("data/tofu/full.json", "w") as f:
 print(f"  Saved data/tofu/full.json ({len(data)} samples)")
 EOF
 
-# Cleanup
-rm -rf Toward-Practical-PII-Unlearning
+rm -rf $REPO
 
-echo "Data setup complete!"
-echo "  PII  → data/raw/  : $(ls data/raw/*.json 2>/dev/null | wc -l) files"
-echo "  Test → data/test/ : $(ls data/test/*.json 2>/dev/null | wc -l) files"
-echo "  TOFU → data/tofu/ : $(ls data/tofu/*.json 2>/dev/null | wc -l) files"
+echo "Data setup complete"
+echo "  PII  -> data/raw/  : $(ls data/raw/*.json 2>/dev/null | wc -l) files"
+echo "  Test -> data/test/ : $(ls data/test/*.json 2>/dev/null | wc -l) files"
+echo "  TOFU -> data/tofu/ : $(ls data/tofu/*.json 2>/dev/null | wc -l) files"

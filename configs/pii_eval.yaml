@@ -1,33 +1,13 @@
-# =============================================================================
-# Evaluation — evaluate unlearned model on PII metrics
-# Follows: Parii et al. (2025) "Toward Practical PII Unlearning" (NLLP @ ACL)
-# Usage: python evaluate.py --config configs/pii_eval.yaml
-# =============================================================================
-#
-# Paper evaluation groups:
-#   Forget Quality   — ESR/loss on the forget set (lower = better unlearning)
-#   Retain Quality   — ESR/loss on test_retain set (higher = better preservation)
-#   Model Utility    — harmonic mean of retain metrics (higher = better)
-#   Model Fluency    — n-gram entropy of forget outputs (higher = better)
-#   [General Benchmarks (MMLU-Pro, GSM8K, ARC) run separately via lm-evaluation-harness]
-#
-# Attack types in paper:
-#   Autocompletion (inner-scope): Direct, Paraphrased, OneHop, Inverted
-#   Extraction (outer-scope):     Targeted (first-name only prompts)
-# =============================================================================
+# Evaluation on UnlearnPII metrics.
+# python evaluate.py --config configs/pii_eval.yaml [--model_path=...]
 
-# --- Model ---
 model_family: llama2-7b-base
 model_path: outputs/unlearn/grad_ascent/forget10/llama2-7b-base
 quantization: none
 
-# --- Eval Tasks ---
 eval_tasks:
 
-  # -----------------------------------------------------------------------
-  # FORGET QUALITY — Autocompletion attacks on forget set
-  # Direct: original training questions verbatim (Paper Section 4.2)
-  # -----------------------------------------------------------------------
+  # Forget Quality — Direct ESR on the original training questions.
   - name: eval_log_forget
     paper_metric: Forget Quality / Direct ESR
     data_path: data/raw
@@ -37,9 +17,7 @@ eval_tasks:
     base_answer_key: paraphrased_answer_1
     perturbed_answer_key: perturbed_answer
 
-  # -----------------------------------------------------------------------
-  # FORGET QUALITY — Paraphrased autocompletion (5 variants, averaged)
-  # -----------------------------------------------------------------------
+  # Forget Quality — Paraphrased ESR (5 variants, averaged).
   - name: eval_log_forget_paraphrase_1
     paper_metric: Forget Quality / Paraphrased ESR (1/5)
     data_path: data/raw
@@ -75,11 +53,7 @@ eval_tasks:
     question_key: paraphrased_question_5
     answer_key: paraphrased_answer_5
 
-  # -----------------------------------------------------------------------
-  # FORGET QUALITY — Inverted autocompletion (PII → person name)
-  # Judge: match item["subject"] (= full_name) in generation.
-  # Mirrors PIIMatcher._evaluate_inverted_qa in paper repo.
-  # -----------------------------------------------------------------------
+  # Forget Quality — Inverted ESR (judge: full_name leak).
   - name: eval_log_forget_inverse
     paper_metric: Forget Quality / Inverted ESR
     task_type: inverse
@@ -88,12 +62,7 @@ eval_tasks:
     question_key: inverted_question
     answer_key: inverted_answer
 
-  # -----------------------------------------------------------------------
-  # FORGET QUALITY — One-hop attack (use one PII to extract another)
-  # full_validation.json: 675 cross-reference QA pairs
-  # Judge: resolve person from question PII via full_user_profiles.json,
-  # check full_name + additional PII leak (mirrors OneHopAttack in paper repo).
-  # -----------------------------------------------------------------------
+  # Forget Quality — One-hop attack (full_validation.json).
   - name: one_hop_attack
     paper_metric: Forget Quality / OneHop ESR
     task_type: one_hop
@@ -103,14 +72,7 @@ eval_tasks:
     answer_key: answer
     profiles_path: data/raw/full_user_profiles.json
 
-  # -----------------------------------------------------------------------
-  # FORGET QUALITY — Targeted extraction (outer-scope, partially informed)
-  # 216 prompts using first-name only (58.8% obfuscated).
-  # Judge: paper-aligned ExtractionAttack — 3 variants (exact / partial_ratio
-  # / token_set_ratio, threshold 85) with per-split denominator = # prompts
-  # mentioning split persons (mirrors pii_attack_orchestrator
-  # ::_calculate_extraction_metrics).
-  # -----------------------------------------------------------------------
+  # Forget Quality — Targeted Extraction (first-name only prompts).
   - name: targeted_extraction
     paper_metric: Forget Quality / Targeted Extraction ESR
     eval_type: targeted_extraction
@@ -119,9 +81,7 @@ eval_tasks:
     names_path: data/raw/split_person_names
     forget_split: forget10
 
-  # -----------------------------------------------------------------------
-  # RETAIN QUALITY — test_retain_pii: 250 QA from 25 held-out persons
-  # -----------------------------------------------------------------------
+  # Retain Quality — held-out PII test set.
   - name: eval_log_retain
     paper_metric: Retain Quality / Direct
     data_path: data/test
@@ -131,10 +91,7 @@ eval_tasks:
     base_answer_key: paraphrased_answer_1
     perturbed_answer_key: perturbed_answer
 
-  # -----------------------------------------------------------------------
-  # MODEL UTILITY — General knowledge preservation (from TOFU benchmark)
-  # real_authors_perturbed + world_facts_perturbed
-  # -----------------------------------------------------------------------
+  # Model Utility — general knowledge tests from TOFU.
   - name: eval_real_author
     paper_metric: Model Utility / Real Authors
     data_path: data/test
@@ -149,11 +106,9 @@ eval_tasks:
     question_key: question
     answer_key: answer
 
-# --- Generation ---
 max_new_tokens: 128
 do_sample: false
 
-# --- Other ---
 batch_size: 16
 bf16: true
-save_dir: null               # defaults to model_path/eval_results
+save_dir: null

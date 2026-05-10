@@ -1,32 +1,26 @@
 #!/bin/bash
-# =============================================================================
-# run_pii_pipeline.sh — Full pipeline cho UnlearnPII: SFT → Unlearn → Eval
-# Usage: bash scripts/run_pii_pipeline.sh grad_ascent forget10
-# =============================================================================
+# Full pipeline (PII track): SFT -> Unlearn -> Eval
+# Usage: bash scripts/run_pii_pipeline.sh grad_ascent forget10 [model_family]
 set -e
 
-METHOD=${1:-grad_ascent}    # grad_ascent | npo | dpo | task_vector
-SPLIT=${2:-forget10}        # forget1 | forget5 | forget10
-MODEL=${3:-llama2-7b-base}  # model family from model_config.yaml
+METHOD=${1:-grad_ascent}
+SPLIT=${2:-forget10}
+MODEL=${3:-llama2-7b-base}
 
-echo "============================================"
 echo "Pipeline: METHOD=$METHOD, SPLIT=$SPLIT, MODEL=$MODEL"
-echo "============================================"
 
-# --- Step 1: SFT Exposed (skip if already exists) ---
 SFT_DIR="outputs/sft_exposed/${MODEL}"
 if [ -d "$SFT_DIR" ] && [ -f "$SFT_DIR/config.json" ]; then
-    echo "[Step 1] SFT model found at $SFT_DIR, skipping..."
+    echo "SFT model found at $SFT_DIR, skipping"
 else
-    echo "[Step 1] Running SFT Exposed..."
+    echo "Running SFT"
     python train.py --config configs/pii_sft.yaml \
         --model_family=$MODEL \
         --save_dir=$SFT_DIR
 fi
 
-# --- Step 2: Unlearning ---
 UNLEARN_DIR="outputs/unlearn/${METHOD}/${SPLIT}/${MODEL}"
-echo "[Step 2] Running Unlearning: $METHOD on $SPLIT..."
+echo "Running unlearning ($METHOD on $SPLIT)"
 python train.py --config configs/pii_unlearn.yaml \
     --model_family=$MODEL \
     --model_path=$SFT_DIR \
@@ -34,13 +28,10 @@ python train.py --config configs/pii_unlearn.yaml \
     --split=$SPLIT \
     --save_dir=$UNLEARN_DIR
 
-# --- Step 3: Evaluation ---
-echo "[Step 3] Running Evaluation..."
+echo "Running evaluation"
 python evaluate.py --config configs/pii_eval.yaml \
     --model_family=$MODEL \
     --model_path=$UNLEARN_DIR \
     --save_dir=$UNLEARN_DIR/eval_results
 
-echo "============================================"
-echo "Done! Results at: $UNLEARN_DIR/eval_results/"
-echo "============================================"
+echo "Done. Results at $UNLEARN_DIR/eval_results/"

@@ -1,21 +1,12 @@
-"""
-Utility functions — config loading, model/tokenizer setup, helpers.
-Simplified from UnlearnPII's utils.py + forget.py model creation logic.
-"""
-import yaml
 import argparse
 import os
-import json
+
 import torch
+import yaml
 from pathlib import Path
-from transformers import (
-    AutoModelForCausalLM, AutoTokenizer,
-    BitsAndBytesConfig, set_seed
-)
-from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training, PeftModel
+from peft import LoraConfig, PeftModel, get_peft_model, prepare_model_for_kbit_training
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
-
-# ========================= CONFIG =========================
 
 def load_yaml(path):
     with open(path) as f:
@@ -23,36 +14,30 @@ def load_yaml(path):
 
 
 def load_config(config_path, overrides=None):
-    """Load YAML config with optional CLI overrides.
-
-    Supports dotted notation for nested keys:
-      --aau.inner_max_steps=50  →  cfg["aau"]["inner_max_steps"] = 50
-      --lora.r=32               →  cfg["lora"]["r"] = 32
-    """
     cfg = load_yaml(config_path)
-    if overrides:
-        for kv in overrides:
-            key, val = kv.split("=", 1)
-            # Auto-cast types
-            if val.lower() in ("true", "false"):
-                val = val.lower() == "true"
-            elif val.replace(".", "").replace("-", "").replace("e", "").isdigit():
-                val = float(val) if "." in val or "e" in val.lower() else int(val)
-            elif val.lower() == "null" or val.lower() == "none":
-                val = None
-            # Dotted notation: aau.inner_max_steps → cfg["aau"]["inner_max_steps"]
-            if "." in key:
-                parent, child = key.split(".", 1)
-                if parent not in cfg or not isinstance(cfg[parent], dict):
-                    cfg[parent] = {}
-                cfg[parent][child] = val
-            else:
-                cfg[key] = val
+    if not overrides:
+        return cfg
+
+    for kv in overrides:
+        key, val = kv.split("=", 1)
+        if val.lower() in ("true", "false"):
+            val = val.lower() == "true"
+        elif val.replace(".", "").replace("-", "").replace("e", "").isdigit():
+            val = float(val) if "." in val or "e" in val.lower() else int(val)
+        elif val.lower() in ("null", "none"):
+            val = None
+
+        if "." in key:
+            parent, child = key.split(".", 1)
+            if parent not in cfg or not isinstance(cfg[parent], dict):
+                cfg[parent] = {}
+            cfg[parent][child] = val
+        else:
+            cfg[key] = val
     return cfg
 
 
 def get_model_identifiers(model_family, config_dir="configs"):
-    """Load model chat template tags from model_config.yaml."""
     model_configs = load_yaml(os.path.join(config_dir, "model_config.yaml"))
     if model_family not in model_configs:
         raise ValueError(f"Unknown model_family '{model_family}'. Available: {list(model_configs.keys())}")
@@ -60,20 +45,14 @@ def get_model_identifiers(model_family, config_dir="configs"):
 
 
 def parse_args():
-    """Parse --config and any --key=value overrides."""
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", required=True, help="Path to YAML config")
+    parser.add_argument("--config", required=True)
     args, unknown = parser.parse_known_args()
-    # Parse --key=value pairs
-    overrides = []
-    for u in unknown:
-        if u.startswith("--") and "=" in u:
-            overrides.append(u[2:])  # strip --
+    overrides = [u[2:] for u in unknown if u.startswith("--") and "=" in u]
     return args.config, overrides
 
 
 def resolve_save_dir(cfg):
-    """Resolve ${variable} placeholders in save_dir."""
     save_dir = cfg["save_dir"]
     for key, val in cfg.items():
         if isinstance(val, str):
@@ -83,42 +62,25 @@ def resolve_save_dir(cfg):
     return cfg
 
 
-# ========================= MODEL =========================
-
 def find_all_linear_names(model):
-    """Find all linear layer names for LoRA (same as UnlearnPII)."""
     names = set()
     for name, module in model.named_modules():
         if isinstance(module, torch.nn.Linear):
-            parts = name.split(".")
-            names.add(parts[-1])
+            names.add(name.split(".")[-1])
     names.discard("lm_head")
     return list(names)
 
 
 def _is_peft_checkpoint(path):
-    """Check if path is a saved PEFT/LoRA adapter (not a full model)."""
     return os.path.isdir(path) and os.path.exists(
         os.path.join(path, "adapter_config.json")
     )
 
 
 def load_model_and_tokenizer(cfg, model_cfg, is_eval=False):
-    """
-    Load model + tokenizer with optional quantization + LoRA.
-    Supports:
-      - Fresh load from HuggingFace (default)
-      - Resume from PEFT/LoRA checkpoint via cfg["model_path"]
-
-    Args:
-        is_eval: if True, load for inference only (no gradient checkpointing,
-                 PEFT adapter loaded as non-trainable). Use for evaluate.py
-                 and oracle model in train.py.
-    """
     model_id = model_cfg["hf_key"]
     torch_dtype = torch.bfloat16 if cfg.get("bf16", True) else torch.float16
 
-    # --- Quantization ---
     bnb_config = None
     quant = cfg.get("quantization", "none")
     if quant == "4bit":
@@ -131,12 +93,9 @@ def load_model_and_tokenizer(cfg, model_cfg, is_eval=False):
     elif quant == "8bit":
         bnb_config = BitsAndBytesConfig(load_in_8bit=True)
 
-    # --- Load model ---
     model_path = cfg.get("model_path", model_id)
 
     if _is_peft_checkpoint(model_path):
-        # Resume từ LoRA checkpoint đã save:
-        # Load base model từ HF trước, sau đó load LoRA adapter
         print(f"[INFO] Detected PEFT checkpoint at '{model_path}'. Loading base + adapter...")
         base_model = AutoModelForCausalLM.from_pretrained(
             model_id,
@@ -147,11 +106,9 @@ def load_model_and_tokenizer(cfg, model_cfg, is_eval=False):
         )
         if bnb_config:
             base_model = prepare_model_for_kbit_training(base_model)
-        # is_trainable=True để tiếp tục train; False cho eval/oracle (tiết kiệm VRAM)
         model = PeftModel.from_pretrained(base_model, model_path, is_trainable=not is_eval)
         print(f"[INFO] Resumed LoRA adapter from '{model_path}' (is_eval={is_eval})")
     else:
-        # Load fresh từ HuggingFace hoặc local full model
         model = AutoModelForCausalLM.from_pretrained(
             model_path,
             quantization_config=bnb_config,
@@ -162,7 +119,6 @@ def load_model_and_tokenizer(cfg, model_cfg, is_eval=False):
         if bnb_config:
             model = prepare_model_for_kbit_training(model)
 
-        # --- LoRA (chỉ apply khi load fresh, không apply khi resume) ---
         lora_cfg = cfg.get("lora", {})
         if lora_cfg and lora_cfg.get("r", 0) > 0:
             target_modules = find_all_linear_names(model)
@@ -175,19 +131,18 @@ def load_model_and_tokenizer(cfg, model_cfg, is_eval=False):
             )
             model = get_peft_model(model, peft_config)
 
-    # print_trainable_parameters() chỉ có trên PEFT model
     if hasattr(model, "print_trainable_parameters"):
         model.print_trainable_parameters()
     else:
         total = sum(p.numel() for p in model.parameters())
         print(f"all params: {total:,} (non-PEFT model)")
+
     model.config.use_cache = False
     if not is_eval:
         model.gradient_checkpointing_enable(
             gradient_checkpointing_kwargs={"use_reentrant": False}
         )
 
-    # --- Tokenizer ---
     tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token_id = tokenizer.eos_token_id
@@ -196,7 +151,6 @@ def load_model_and_tokenizer(cfg, model_cfg, is_eval=False):
 
 
 def save_model(model, tokenizer, save_dir):
-    """Save model + tokenizer + training config."""
     Path(save_dir).mkdir(parents=True, exist_ok=True)
     model.save_pretrained(save_dir)
     tokenizer.save_pretrained(save_dir)

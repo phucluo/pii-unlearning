@@ -1,24 +1,10 @@
-"""
-src/aau_pii.py — Adaptive Adversarial Unlearning for PII.
+"""Adaptive Adversarial Unlearning for PII (AAU-PII).
 
-Outer-loop controller that iteratively mines hard prompts (questions that
-still cause PII leakage) and retrains the model to suppress those leaks.
-
-Components:
-  - LeakageJudge: field-wise PII matching via paper-aligned
-    pii_exact_match() (word-boundary regex + special-case
-    latest_bank_transaction / Occupation fields)
-  - PromptMiner: template generation + self-probing
-  - run_aau_pii(): main orchestration loop
-
-Usage (via train.py):
-  python train.py --config configs/pii_aau.yaml
-  python train.py --config configs/pii_aau.yaml --aau.inner_method=npo
+Outer loop: mine hard prompts that still leak PII, then retrain on them.
 """
 import copy
 import json
 import os
-import random
 
 import torch
 from pathlib import Path
@@ -26,20 +12,18 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from src.data_module import (
-    ForgetRetainDataset, SFTDataset,
-    forget_collator, sft_collator,
+    ForgetRetainDataset,
+    SFTDataset,
+    forget_collator,
+    sft_collator,
 )
-from src.trainers import grad_ascent_loss, npo_loss, compute_ce_loss
-from src.utils import (
-    get_model_identifiers, load_model_and_tokenizer, save_model,
-)
+from src.trainers import compute_ce_loss, grad_ascent_loss, npo_loss
+from src.utils import get_model_identifiers, load_model_and_tokenizer, save_model
 
-# Paper-aligned PII judge (word-boundary + bank-transaction / Occupation special cases)
-# Shared with evaluate.py to keep training-time judging consistent with scoring.
+# Reuse the same word-boundary PII matcher used at evaluation time so that
+# training-time judging stays consistent with the reported metrics.
 from evaluate import pii_exact_match
 
-
-# ========================= CONSTANTS =========================
 
 PII_FIELDS = [
     "email_address", "phone_number", "home_address", "work_address",
@@ -76,19 +60,14 @@ EXTRACTION_TEMPLATES = [
 ]
 
 
-# ========================= LEAKAGE JUDGE =========================
-
 class LeakageJudge:
-    """Field-wise PII leakage detection.
-
-    Reuses logic from evaluate.py check_pii_in_text() but returns a
-    fractional leak score (number of leaked fields / total fields).
-    """
+    """Detect PII leakage in generated text on a per-field basis."""
 
     def __init__(self, profiles_path, forget_names):
-        self.person_pii = {}  # name → {field: value}
+        self.person_pii = {}
         with open(profiles_path) as f:
             profiles = json.load(f)
+
         for entry in profiles:
             name = entry.get("full_name", "")
             if not name or name not in forget_names:
@@ -100,17 +79,10 @@ class LeakageJudge:
                     self.person_pii[name][field] = str(val)
 
     def score(self, generated_text, person_name):
-        """Field-wise leak score in [0, 1].
-
-        Uses paper-aligned pii_exact_match() (word-boundary regex + special
-        cases for latest_bank_transaction / Occupation), shared with
-        evaluate.py to keep training-time judging consistent with scoring.
-        """
         pii_dict = self.person_pii.get(person_name, {})
-        if not pii_dict:
+        if not pii_dict or not generated_text:
             return 0.0
-        if not generated_text:
-            return 0.0
+
         leaked = 0
         for field, val in pii_dict.items():
             if pii_exact_match(field, val, generated_text):
@@ -118,15 +90,11 @@ class LeakageJudge:
         return leaked / len(pii_dict)
 
     def check_any_leak(self, generated_text, person_name):
-        """Binary check: any PII field leaked."""
         return self.score(generated_text, person_name) > 0.0
 
 
-# ========================= PROMPT MINER =========================
-
 class PromptMiner:
-    """Generates candidate prompts from existing data + templates,
-    then probes the model to find hard prompts (ones that still leak)."""
+    """Generate candidate prompts and find the ones that still leak."""
 
     def __init__(self, forget_data, forget_names, judge):
         self.forget_data = forget_data
@@ -134,12 +102,11 @@ class PromptMiner:
         self.judge = judge
 
     def _find_person(self, item):
-        """Extract person name from forget item."""
         question = item.get("question", "").lower()
         for name in self.forget_names:
             if name.lower() in question:
                 return name
-        # Fallback: match via subject_pii values
+        # If the name isn't in the question, look for a matching PII value.
         subject_pii = item.get("subject_pii", [])
         for name, pii_dict in self.judge.person_pii.items():
             for val in pii_dict.values():
@@ -148,7 +115,6 @@ class PromptMiner:
         return None
 
     def _detect_field(self, item, person_name):
-        """Try to identify which PII field this item's answer corresponds to."""
         answer = item.get("answer", "").strip().lower()
         pii_dict = self.judge.person_pii.get(person_name, {})
         for field, val in pii_dict.items():
@@ -157,11 +123,6 @@ class PromptMiner:
         return None
 
     def collect_candidates(self):
-        """Collect all candidate prompts from existing variants + templates.
-
-        Returns: list of dicts with keys:
-            question, answer, person, style
-        """
         candidates = []
 
         for item in self.forget_data:
@@ -170,7 +131,6 @@ class PromptMiner:
                 continue
             answer = item["answer"]
 
-            # Direct question
             candidates.append({
                 "question": item["question"],
                 "answer": answer,
@@ -178,7 +138,6 @@ class PromptMiner:
                 "style": "direct",
             })
 
-            # Paraphrased questions (up to 5)
             for i in range(1, 6):
                 key = f"paraphrased_question_{i}"
                 if key in item and item[key]:
@@ -189,7 +148,6 @@ class PromptMiner:
                         "style": f"paraphrase_{i}",
                     })
 
-            # Inverted question
             if item.get("inverted_question"):
                 candidates.append({
                     "question": item["inverted_question"],
@@ -198,7 +156,6 @@ class PromptMiner:
                     "style": "inverted",
                 })
 
-            # Template-generated extraction prompts
             field = self._detect_field(item, person)
             if field and field in FIELD_NATURAL:
                 field_nat = FIELD_NATURAL[field]
@@ -213,28 +170,21 @@ class PromptMiner:
         return candidates
 
     def mine(self, model, tokenizer, model_configs, device, aau_cfg):
-        """Full mining: collect → probe → judge → rank → top-k.
-
-        Returns: list of hard prompt dicts sorted by leak_score descending.
-        """
         candidates = self.collect_candidates()
         print(f"  [Mine] {len(candidates)} candidate prompts collected")
 
-        # Build prompt strings for generation
         q_start = model_configs["question_start_tag"]
         q_end = model_configs["question_end_tag"]
         a_start = model_configs["answer_tag"]
         formatted = [q_start + c["question"] + q_end + a_start for c in candidates]
 
-        # Self-probe: greedy + sampling passes
         n_samples = aau_cfg.get("self_probe_samples", 3)
         temperature = aau_cfg.get("self_probe_temperature", 0.7)
         max_new_tokens = aau_cfg.get("max_new_tokens", 128)
         gen_bs = aau_cfg.get("gen_batch_size", 16)
 
-        all_responses = [[] for _ in candidates]  # list of lists
+        all_responses = [[] for _ in candidates]
 
-        # Greedy pass
         greedy_texts = _batch_generate(
             model, tokenizer, formatted, device,
             max_new_tokens=max_new_tokens, batch_size=gen_bs,
@@ -243,7 +193,6 @@ class PromptMiner:
         for i, text in enumerate(greedy_texts):
             all_responses[i].append(text)
 
-        # Sampling passes
         for s in range(n_samples):
             sampled_texts = _batch_generate(
                 model, tokenizer, formatted, device,
@@ -254,7 +203,6 @@ class PromptMiner:
             for i, text in enumerate(sampled_texts):
                 all_responses[i].append(text)
 
-        # Judge each candidate: max leak score across all responses
         hard_prompts = []
         for cand, responses in zip(candidates, all_responses):
             leak_score = max(
@@ -264,15 +212,12 @@ class PromptMiner:
                 cand["leak_score"] = leak_score
                 hard_prompts.append(cand)
 
-        # IMPORTANT: compute leak_rate BEFORE top-k truncation.
-        # Previous bug: leak_rate was counted after truncation to top_k=50 →
-        # with ~2000 candidates, leak_rate capped at 50/2000=0.025 < default
-        # leak_threshold 0.05 → outer loop always stopped after round 1.
+        # Compute leak_rate over the full candidate pool before truncating
+        # to top-k, so the rate isn't capped by the top-k size.
         total = len(candidates)
         n_leak_total = len(hard_prompts)
         leak_rate = n_leak_total / total if total > 0 else 0
 
-        # Sort by leak_score descending, take top-k (for training batch only)
         hard_prompts.sort(key=lambda x: x["leak_score"], reverse=True)
         top_k = aau_cfg.get("top_k_hard_prompts", 50)
         hard_prompts = hard_prompts[:top_k]
@@ -284,12 +229,9 @@ class PromptMiner:
         return hard_prompts, leak_rate
 
 
-# ========================= GENERATION HELPER =========================
-
 def _batch_generate(model, tokenizer, prompts, device,
                     max_new_tokens=128, batch_size=16,
                     do_sample=False, temperature=1.0, desc="Generating"):
-    """Batch generation with left-padding. Returns list of generated texts."""
     model.eval()
     original_side = tokenizer.padding_side
     tokenizer.padding_side = "left"
@@ -328,12 +270,9 @@ def _batch_generate(model, tokenizer, prompts, device,
     return gen_texts
 
 
-# ========================= UTILITY HELPERS =========================
-
 def _compute_retain_loss(model, retain_dataloader, device):
-    """Compute average CE loss on retain set (forward only, no gradient)."""
     model.eval()
-    total_loss = 0
+    total_loss = 0.0
     n_batches = 0
     with torch.no_grad():
         for batch in retain_dataloader:
@@ -347,15 +286,12 @@ def _compute_retain_loss(model, retain_dataloader, device):
 
 
 def _save_round_data(save_dir, round_num, hard_prompts, audit_entry):
-    """Write round-specific data for audit trail."""
     round_dir = os.path.join(save_dir, "aau_data", f"round_{round_num}")
     Path(round_dir).mkdir(parents=True, exist_ok=True)
 
-    # Hard prompts (full audit info)
     with open(os.path.join(round_dir, "hard_prompts.json"), "w") as f:
         json.dump(hard_prompts, f, indent=2, ensure_ascii=False)
 
-    # Training data (ForgetRetainDataset-compatible format)
     train_data = [
         {"question": hp["question"], "answer": hp["answer"]}
         for hp in hard_prompts
@@ -367,7 +303,6 @@ def _save_round_data(save_dir, round_num, hard_prompts, audit_entry):
 
 
 def _save_checkpoint(model, tokenizer, optimizer, round_num, step, save_dir):
-    """Save per-round checkpoint."""
     ckpt_dir = os.path.join(save_dir, f"round_{round_num}_step{step}")
     Path(ckpt_dir).mkdir(parents=True, exist_ok=True)
     model.save_pretrained(ckpt_dir)
@@ -377,15 +312,7 @@ def _save_checkpoint(model, tokenizer, optimizer, round_num, step, save_dir):
     return ckpt_dir
 
 
-# ========================= MAIN ORCHESTRATOR =========================
-
 def run_aau_pii(cfg):
-    """AAU-PII outer-loop controller.
-
-    1. Load model from warm-start checkpoint
-    2. For each round: mine → select → retrain → evaluate → check stop
-    3. Save final checkpoint
-    """
     print("=" * 60)
     print("AAU-PII: Adaptive Adversarial Unlearning")
     print("=" * 60)
@@ -397,8 +324,6 @@ def run_aau_pii(cfg):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model_cfg = get_model_identifiers(cfg["model_family"])
 
-    # --- Load model from warm-start ---
-    # warm_start_path: check top-level CLI override first, then aau: block
     warm_start = cfg.get("warm_start_path") or aau_cfg.get("warm_start_path")
     if warm_start:
         cfg_load = copy.deepcopy(cfg)
@@ -410,20 +335,17 @@ def run_aau_pii(cfg):
 
     model, tokenizer = load_model_and_tokenizer(cfg_load, model_cfg)
 
-    # --- Oracle model (only for NPO inner method) ---
     inner_method = aau_cfg.get("inner_method", "grad_ascent")
     oracle_model = None
     if inner_method == "npo":
         print("[AAU] Loading oracle (SFT reference) model for NPO...")
         oracle_cfg = copy.deepcopy(cfg)
-        # Oracle is always the SFT checkpoint, not warm-start
         oracle_cfg["lora"] = {"r": 0}
         oracle_model, _ = load_model_and_tokenizer(oracle_cfg, model_cfg, is_eval=True)
         oracle_model.eval()
         for p in oracle_model.parameters():
             p.requires_grad = False
 
-    # --- Load forget data + profiles ---
     split = cfg["split"]
     pct = int(split.replace("forget", ""))
     retain_split = f"retain{100 - pct}"
@@ -436,19 +358,16 @@ def run_aau_pii(cfg):
         forget_data = json.load(f)
     print(f"[AAU] Forget set: {len(forget_data)} items from {forget_path}")
 
-    # Load forget person names
     names_path = cfg.get("names_path", "data/raw/split_person_names")
     names_file = os.path.join(names_path, f"{split}_names.json")
     with open(names_file) as f:
         forget_names = set(json.load(f))
     print(f"[AAU] Forget persons: {len(forget_names)}")
 
-    # --- Initialize judge + miner ---
     profiles_path = cfg.get("profiles_path", "data/raw/full_user_profiles.json")
     judge = LeakageJudge(profiles_path, forget_names)
     miner = PromptMiner(forget_data, forget_names, judge)
 
-    # --- Retain dataloader for utility monitoring ---
     retain_eval_ds = SFTDataset(
         retain_path, tokenizer, cfg["model_family"],
         max_length=cfg.get("max_length", 500),
@@ -458,24 +377,17 @@ def run_aau_pii(cfg):
         collate_fn=sft_collator, num_workers=0,
     )
 
-    # Initial retain loss (baseline for utility floor)
     initial_retain_loss = _compute_retain_loss(model, retain_eval_dl, device)
     print(f"[AAU] Initial retain loss: {initial_retain_loss:.4f}")
 
-    # --- Select inner loss function ---
-    if inner_method == "npo":
-        inner_loss_fn = npo_loss
-    else:
-        inner_loss_fn = grad_ascent_loss
+    inner_loss_fn = npo_loss if inner_method == "npo" else grad_ascent_loss
     print(f"[AAU] Inner method: {inner_method}")
 
-    # --- Optimizer ---
     optimizer = torch.optim.AdamW(
         [p for p in model.parameters() if p.requires_grad],
         lr=cfg["lr"], weight_decay=cfg.get("weight_decay", 0.01),
     )
 
-    # --- AAU parameters ---
     max_rounds = aau_cfg.get("rounds", 5)
     inner_max_steps = aau_cfg.get("inner_max_steps", 100)
     retain_weight = aau_cfg.get("retain_weight", 1.0)
@@ -484,7 +396,6 @@ def run_aau_pii(cfg):
     utility_degradation = aau_cfg.get("utility_degradation", 1.5)
     grad_accum = cfg.get("gradient_accumulation_steps", 1)
 
-    # --- Audit log ---
     audit_log = {
         "config": {
             "inner_method": inner_method,
@@ -499,18 +410,15 @@ def run_aau_pii(cfg):
 
     global_step = 0
 
-    # ========================= OUTER LOOP =========================
     for round_num in range(1, max_rounds + 1):
         print(f"\n{'='*60}")
         print(f"AAU Round {round_num}/{max_rounds}")
         print(f"{'='*60}")
 
-        # --- MINE: find hard prompts ---
         hard_prompts, overall_leak_rate = miner.mine(
             model, tokenizer, model_cfg, device, aau_cfg,
         )
 
-        # Check convergence: no hard prompts found → truly converged, skip training
         if len(hard_prompts) == 0:
             print(f"  [STOP] No hard prompts found — converged!")
             audit_log["rounds"].append({
@@ -521,14 +429,9 @@ def run_aau_pii(cfg):
             })
             break
 
-        # NOTE: leak_threshold is checked AFTER training (below), not here.
-        # Always train if hard prompts exist — even if rate is low.
-
-        # --- AUGMENT: write round data ---
         round_dir = _save_round_data(save_dir, round_num, hard_prompts, None)
         round_forget_path = os.path.join(round_dir, "forget10.json")
 
-        # --- CREATE round dataloader ---
         round_ds = ForgetRetainDataset(
             forget_path=round_forget_path,
             retain_path=retain_path,
@@ -542,10 +445,9 @@ def run_aau_pii(cfg):
             collate_fn=forget_collator, num_workers=0,
         )
 
-        # --- UPDATE: inner training loop ---
         model.train()
         step = 0
-        total_loss = 0
+        total_loss = 0.0
         pbar = tqdm(desc=f"  Round {round_num} training", total=inner_max_steps)
 
         while step < inner_max_steps:
@@ -576,7 +478,6 @@ def run_aau_pii(cfg):
                 pbar.update(1)
                 pbar.set_postfix(loss=f"{loss.item() * grad_accum:.4f}")
 
-        # Flush remaining gradients
         if step % grad_accum != 0:
             optimizer.step()
             optimizer.zero_grad()
@@ -586,16 +487,13 @@ def run_aau_pii(cfg):
         avg_loss = total_loss / max(step, 1)
         print(f"  [Train] avg loss: {avg_loss:.4f}, steps: {step}")
 
-        # --- EVALUATE: retain utility check ---
         retain_loss = _compute_retain_loss(model, retain_eval_dl, device)
         degradation = retain_loss / initial_retain_loss if initial_retain_loss > 0 else 1.0
         print(f"  [Eval] retain loss: {retain_loss:.4f} "
               f"(degradation: {degradation:.2f}x vs initial {initial_retain_loss:.4f})")
 
-        # Save round checkpoint
         _save_checkpoint(model, tokenizer, optimizer, round_num, global_step, save_dir)
 
-        # --- AUDIT ---
         round_entry = {
             "round": round_num,
             "num_hard_prompts": len(hard_prompts),
@@ -605,7 +503,8 @@ def run_aau_pii(cfg):
             "retain_degradation": degradation,
             "global_step": global_step,
         }
-        # Check utility floor FIRST — preserve utility over forgetting
+
+        # Stop if utility has degraded too much.
         if degradation > utility_degradation:
             print(f"  [STOP] Retain degradation {degradation:.2f}x > "
                   f"threshold {utility_degradation}x — stopping to preserve utility")
@@ -613,7 +512,7 @@ def run_aau_pii(cfg):
             audit_log["rounds"].append(round_entry)
             break
 
-        # Check leak threshold AFTER training — stop if already low enough
+        # Stop if the leak rate is already low enough.
         if overall_leak_rate < leak_threshold:
             print(f"  [INFO] Leak rate {overall_leak_rate:.4f} < threshold {leak_threshold} "
                   f"— trained this round, stopping here.")
@@ -621,7 +520,6 @@ def run_aau_pii(cfg):
             audit_log["rounds"].append(round_entry)
             break
 
-    # ========================= SAVE FINAL =========================
     print(f"\n{'='*60}")
     print(f"AAU-PII complete — {len(audit_log['rounds'])} rounds, "
           f"global_step={global_step}")
@@ -629,16 +527,14 @@ def run_aau_pii(cfg):
 
     save_model(model, tokenizer, save_dir)
 
-    # Save audit log
     audit_path = os.path.join(save_dir, "aau_data", "audit_log.json")
     Path(os.path.dirname(audit_path)).mkdir(parents=True, exist_ok=True)
     with open(audit_path, "w") as f:
         json.dump(audit_log, f, indent=2, ensure_ascii=False)
     print(f"[AAU] Audit log saved to {audit_path}")
 
-    # Save train config
     config_save = {
-        k: str(v) if not isinstance(v, (int, float, bool, type(None), list, dict)) else v
+        k: (str(v) if not isinstance(v, (int, float, bool, type(None), list, dict)) else v)
         for k, v in cfg.items()
     }
     with open(os.path.join(save_dir, "train_config.json"), "w") as f:
