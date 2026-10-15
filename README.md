@@ -1,6 +1,5 @@
 # PII Unlearning
 
-> SP26AI66 — FPT University Capstone Project
 
 Machine unlearning to remove personal information (PII) from LLMs, evaluated on
 two benchmarks: **UnlearnPII** and **TOFU**.
